@@ -624,7 +624,7 @@ const THEMES = {
     tiers: ['#f4ecdf', '#eef6f4', '#fbe0dc', '#f2f2f6', '#e2eefa', '#f2e4d6', '#fbe4d0', '#f0e6d8', '#fdf0c0', '#eef0f6', '#e8f2f8', '#ffe6a0'],
     diff: { stars: 2, spawn: [[1, 62], [2, 30], [3, 8]], mul: 1.2, rewind: 4, lock: { name: 'Ice Block', hp: 1, every: 9, max: 2 } },
     vfx: {
-      bloom: .32, rays: { c: [255, 226, 160], n: 5, x: .85, a: .16 },
+      bloom: .14, rays: { c: [255, 226, 160], n: 5, x: .85, a: .16 },
       sprites: [{ mode: 'fall', n: 22, size: [16, 30], speed: [16, 36], sway: 26, spin: 1 },
         { mode: 'twinkle', n: 9, size: [18, 36], add: true, glow: [255, 220, 150] },
         { mode: 'fall', n: 16, size: [8, 16], speed: [12, 24], sway: 14 }],
@@ -646,7 +646,7 @@ const THEMES = {
     tiers: ['#eef0d8', '#f8ecc4', '#f4dcc8', '#fbeab8', '#f4f2ec', '#ece6da', '#eef2f6', '#fde2c0', '#fff0b4', '#f2ece0', '#f6f0e8', '#ffe08a'],
     diff: { stars: 3, spawn: [[1, 55], [2, 30], [3, 15]], mul: 1.5, rewind: 3, lock: { name: 'Medusa Stone', hp: 1, every: 7, max: 3 } },
     vfx: {
-      bloom: .26, rays: { c: [255, 232, 170], n: 4, x: .12, a: .15 },
+      bloom: .12, rays: { c: [255, 232, 170], n: 4, x: .12, a: .15 },
       sprites: [{ mode: 'fall', n: 10, size: [22, 38], speed: [10, 22], sway: 34, spin: .7 },
         { mode: 'fall', n: 12, size: [16, 26], speed: [16, 30], sway: 22, spin: 1.4 },
         { mode: 'rise', n: 16, size: [10, 22], speed: [8, 20], sway: 10, add: true, glow: [255, 220, 140] }],
@@ -668,7 +668,7 @@ const THEMES = {
     tiers: ['#f0dcc8', '#f4e2d8', '#f6d2c0', '#ecd6d6', '#e2dcd4', '#ecd8c4', '#d8dcf0', '#f2c8c0', '#f0e2d0', '#e8d0c4', '#e0d0dc', '#f6d080'],
     diff: { stars: 4, spawn: [[1, 48], [2, 30], [3, 17], [4, 5]], mul: 2, rewind: 2, lock: { name: 'Sealed Box', hp: 2, every: 5, max: 3 } },
     vfx: {
-      bloom: .42, haze: [200, 40, 50, .28], dark: true,
+      bloom: .18, haze: [200, 40, 50, .28], dark: true,
       sprites: [{ mode: 'float', n: 7, size: [26, 44], speed: [6, 14], add: true, glow: [120, 140, 255], life: [5, 9] },
         { mode: 'fall', n: 14, size: [16, 28], speed: [18, 34], sway: 30, spin: 1.3 },
         { mode: 'rise', n: 18, size: [8, 16], speed: [16, 34], sway: 18, add: true, glow: [255, 140, 60] }],
@@ -690,7 +690,7 @@ const THEMES = {
     tiers: ['#cfeee6', '#d6f2dc', '#d8e2e6', '#d0e8f2', '#e8e6c8', '#d6e0f6', '#d4ecd8', '#e0e4e8', '#e6ece6', '#d0dcec', '#d8eadc', '#a8f0e0'],
     diff: { stars: 5, spawn: [[1, 42], [2, 30], [3, 20], [4, 8]], mul: 2.5, rewind: 2, lock: { name: 'Tangled Vines', hp: 2, every: 4, max: 4 } },
     vfx: {
-      bloom: .5, rays: { c: [140, 240, 220], n: 6, x: .5, a: .12, sway: true }, haze: [20, 120, 130, .3], dark: true,
+      bloom: .2, rays: { c: [140, 240, 220], n: 6, x: .5, a: .12, sway: true }, haze: [20, 120, 130, .3], dark: true,
       sprites: [{ mode: 'float', n: 16, size: [10, 22], speed: [4, 12], add: true, glow: [80, 255, 220], life: [4, 8] },
         { mode: 'rise', n: 5, size: [30, 52], speed: [8, 16], sway: 16, add: true, glow: [90, 220, 255] },
         { mode: 'rise', n: 16, size: [8, 20], speed: [26, 50], sway: 12 }],
@@ -1332,8 +1332,9 @@ class Particles {
     // premium themes burst into their painted particle sprites
     const spr = TH.vfx && themeImg('fx_1');
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * TAU, v = (0.3 + Math.random() * 0.7) * speed;
-      this.items.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, t: 0, life: life * (0.6 + Math.random() * 0.5) * (spr ? 1.3 : 1), c: colors[i % colors.length],
+      // sprite bursts start evenly around the circle; classic stars keep their random spray
+      const a = spr ? (i + Math.random() * .6) * TAU / n : Math.random() * TAU, v = (spr ? .55 + Math.random() * .45 : 0.3 + Math.random() * 0.7) * speed;
+      this.items.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - (spr ? 0 : 60), t: 0, life: life * (0.6 + Math.random() * 0.5) * (spr ? 1.3 : 1), c: colors[i % colors.length],
         s: size * (0.6 + Math.random() * 0.6), k: spr ? 'spr' : 'star', si: 1 + (i % 3), a: Math.random() * TAU, va: (Math.random() - .5) * 6 });
     }
   }
@@ -1347,7 +1348,8 @@ class Particles {
   update(dt) {
     for (const p of this.items) {
       p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.va) p.a += p.va * dt;
-      if (p.k === 'spr') { p.vy += 160 * dt; p.vx *= 0.96; } else if (p.k !== 'text') { p.vy += 380 * dt; p.vx *= 0.98; }
+      // sprite bursts: even drag on both axes (per second, not per frame) and light gravity, so they fan out in a ring
+      if (p.k === 'spr') { const d = Math.exp(-2.4 * dt); p.vx *= d; p.vy = p.vy * d + 70 * dt; } else if (p.k !== 'text') { p.vy += 380 * dt; p.vx *= 0.98; }
     }
     this.items = this.items.filter(p => p.t < p.life);
   }
@@ -2443,7 +2445,7 @@ const app = {
     }
     const b = this.blg, b2 = this.blg2;
     b.globalCompositeOperation = 'copy';
-    if (this.bloomFilter) b.filter = 'brightness(0.85) contrast(2.4) saturate(1.5)';
+    if (this.bloomFilter) b.filter = 'brightness(0.7) contrast(3.2) saturate(1.3)';
     b.drawImage(cv, 0, 0, w, h);
     if (this.bloomFilter) b.filter = 'none';
     b2.globalCompositeOperation = 'copy'; b2.drawImage(this.bl, 0, 0, w >> 1, h >> 1);

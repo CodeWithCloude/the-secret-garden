@@ -1,8 +1,8 @@
 """Prompts for the new themes (NetaYume, anime cozy). Used by gen_theme.py."""
 
-STYLE = ("masterpiece, best quality, cute chibi game item sticker icon, single object centered, thick dark brown outline, "
+STYLE = ("masterpiece, best quality, cute chibi game item sticker icon, single isolated object centered, complete and fully connected, no scene inside the object, thick dark brown outline, "
          "flat cel shading, soft highlights, clean simple shapes, anime cozy style, plain pure white background")
-NEG = ("lowres, worst quality, blurry, text, letters, watermark, signature, logo, emoji, frame, border, multiple objects, "
+NEG = ("lowres, worst quality, blurry, text, letters, watermark, signature, logo, emoji, frame, border, multiple objects, circle badge, round frame, emblem, coin, porthole, vignette, scene inside object, cityscape inside, landscape inside, disconnected parts, "
        "scenery, background, floor, shadow on ground, realistic, photo, 3d render, cropped, deformed")
 FX_STYLE = ("masterpiece, best quality, a single small glowing particle sprite, centered, soft bloom glow, "
             "anime cozy style, isolated on pure black background, nothing else")
@@ -20,8 +20,8 @@ THEMES = {
         "bg_mood": "white snow, pine forest, warm golden sun after a long blizzard, new beginning before spring, hopeful",
         "blocks": [
             "a single brown pine cone with layered woody scales, a little snow on the tip, object only",
-            "a white snowdrop flower, drooping white bell-shaped petals on a thin green stem with two slim leaves",
-            "a red knitted wool scarf neatly folded, object only, no character",
+            "one white snowdrop flower plant, a single drooping white bell flower attached to a curved green stem with two slim leaves, whole plant connected, object only",
+            "a long red knitted scarf with fringe lying flat in a loose S curve, empty scarf only, no face, no character, no creature, not worn",
             "a cute white snow hare sitting",
             "a glowing lantern made of ice with a warm candle inside",
             "a steaming mug of hot cocoa with marshmallows",
@@ -30,7 +30,7 @@ THEMES = {
             "a glowing golden sun crystal gem",
             "a cute fluffy snowy owl",
             "a majestic white spirit deer with glowing golden antlers",
-            "a golden rising sun over snowy pine trees with radiant light rays",
+            "a small snowy pine tree with a glowing golden sun star on its top shining radiant light, one connected object",
         ],
         "items": {"rewind": "a golden pocket watch frosted with snow", "hammer": "an ice axe climbing pickaxe with a wooden handle and a steel pick head, object only",
                   "blueprint": "an open paper map with a dotted red trail and small pine trees, curled edges, object only"},
@@ -49,7 +49,7 @@ THEMES = {
         "mood": "greek mythology, cream and white marble with gold accents",
         "bg_mood": "cream marble, golden sunlight, olive trees, divine and peaceful, warm cream color palette",
         "blocks": [
-            "a small olive branch sprig with green olives",
+            "an olive branch, a single twig with five slim green leaves and three green olives, nothing else",
             "a golden laurel wreath ring made of leaves, object only, no face",
             "an ancient greek clay amphora vase with black figure pattern",
             "a golden lyre harp",
@@ -57,7 +57,7 @@ THEMES = {
             "a small marble statue of an owl",
             "a white marble statue of pegasus with wings spread",
             "a sacred flame burning in a golden brazier",
-            "a glowing golden lightning bolt",
+            "a golden zeus thunderbolt, a jagged yellow lightning bolt shape pointing diagonally down, glowing",
             "a small white greek temple with columns and a triangular roof",
             "a white marble statue of a greek goddess holding a torch",
             "a grand golden temple of olympus floating on white clouds, glowing",
@@ -80,17 +80,17 @@ THEMES = {
         "bg_mood": "night, dark red color palette, crimson moon, mist, glowing paper lanterns, mysterious, beautiful but eerie, no way out",
         "blocks": [
             "a paper ofuda talisman charm with red ink marks",
-            "a white kitsune fox mask with red markings",
+            "a white kitsune fox mask with red markings, front view, full symmetrical mask",
             "a glowing red paper lantern",
             "a cute karakasa obake one-eyed paper umbrella yokai",
             "a small cute grey stone jizo buddhist monk statue with a round bald head and closed eyes, wearing a red bib",
             "a cute tanuki teapot yokai",
             "a blue spirit flame inside a hanging lantern",
             "a red torii gate",
-            "a cute white nine-tailed fox spirit sitting, blue flames",
+            "a cute white nine-tailed fox sitting, fluffy fanned tails, small blue flame wisps, full body, complete",
             "a small haunted japanese teahouse with glowing windows",
             "a cute parade of small yokai carrying lanterns",
-            "an endless tunnel of red torii gates glowing in the dark",
+            "a row of three red torii gates on a short stone path with glowing lanterns, compact standalone object",
         ],
         "items": {"rewind": "a small silver spirit bell with a red tassel", "hammer": "a golden buddhist shakujo staff with metal rings at the top, object only, no character",
                   "blueprint": "a folded omikuji fortune paper slip"},
@@ -110,20 +110,20 @@ THEMES = {
         "bg_mood": "deep blue and green, underwater, post apocalyptic flooded city overgrown with rainforest plants, light rays from the surface, fish, lonely, uncanny, quiet",
         "blocks": [
             "a small clump of glowing teal moss",
-            "a water fern sprout with tiny bubbles",
+            "a small green water fern sprout with curled fronds and tiny bubbles, object only",
             "a rusty metal road sign board on a short pole, covered with coral, moss and a small sea plant, object only",
             "an old streetlamp wrapped in vines with glowing coral",
             "a sunken yellow taxi car overgrown with moss and sea plants",
-            "a cute glowing jellyfish inside a glass lantern",
+            "a glass lantern with a cute pink glowing jellyfish with long tentacles floating inside it",
             "an old city bus overgrown with vines and seaweed",
-            "a broken billboard overgrown with plants and small fish",
-            "a whale skeleton wrapped in glowing vines",
+            "a broken rusty billboard sign on two legs overgrown with green vines and moss, object only",
+            "a white whale skeleton, skull and ribs and spine bones only, green vines wrapped around the bones, side view",
             "a drowned skyscraper covered in jungle trees",
             "a giant ancient sea turtle carrying a small forest on its shell",
             "a glowing great tree growing from a drowned city tower, teal light",
         ],
-        "items": {"rewind": "a glass bottle holding a glowing air bubble", "hammer": "a single rusty pipe wrench tool, object only",
-                  "blueprint": "a handheld sonar map screen glowing green"},
+        "items": {"rewind": "a glass bottle with a cork holding one big glowing air bubble, object only", "hammer": "a single rusty pipe wrench tool, object only",
+                  "blueprint": "a handheld sonar device with a round green radar screen and buttons, object only"},
         "mascot": "a cute chibi pink axolotl wearing a small brass diving helmet, full body standing, character only, no circle",
         "lock": "a thick knot of tangled green vines and roots forming a block",
         "lock_hit": "a knot of torn tangled green vines, frayed and breaking apart",

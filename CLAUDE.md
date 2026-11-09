@@ -17,6 +17,9 @@ Single-file HTML merge game (`index.html`, canvas, 4x4 board) with per-theme art
 - Generate exactly one image per asset in a single pass (no multiple candidates, no regenerating while the pass runs). Review afterwards and redo only the bad ones (`--redo`).
 - Every ComfyUI job gets a unique `filename_prefix` (`secret-garden/<theme>/<asset>`), and outputs are kept, never deleted. A shared prefix plus deleting outputs makes ComfyUI reuse file names, so its history shows the same picture over and over and looks like duplicate generation.
 
+- Check every image strictly before showing it: one complete, connected object that matches its name; no round badge or scene inside it, no extra character or face. NetaYume tends to add those, so keep the anti-badge words in `STYLE`/`NEG`.
+- After generation and fixes, show the user every image (contact sheets) and wait for their confirmation before any commit, push, GitHub Pages or Artifact update. Never skip this step.
+
 ## Deploy
 - Repo: `CodeWithCloude/the-secret-garden` (public, GitHub Pages from `main` root). Artifact "The Secret Garden" is updated after each release.
 - Open the game with `#test` to unlock every theme and cycle them with the T key.

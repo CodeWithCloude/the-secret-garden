@@ -1,0 +1,138 @@
+"""Prompts for the new themes (NetaYume, anime cozy). Used by gen_theme.py."""
+
+STYLE = ("masterpiece, best quality, cute chibi game item sticker icon, single object centered, thick dark brown outline, "
+         "flat cel shading, soft highlights, clean simple shapes, anime cozy style, plain pure white background")
+NEG = ("lowres, worst quality, blurry, text, letters, watermark, signature, logo, emoji, frame, border, multiple objects, "
+       "scenery, background, floor, shadow on ground, realistic, photo, 3d render, cropped, deformed")
+FX_STYLE = ("masterpiece, best quality, a single small glowing particle sprite, centered, soft bloom glow, "
+            "anime cozy style, isolated on pure black background, nothing else")
+FX_NEG = "lowres, text, watermark, multiple objects, scenery, background details, frame, border, white background, gray background, emoji"
+BG_STYLE = ("masterpiece, best quality, anime cozy style background illustration, flat anime cel shading, clean line art, "
+            "soft pastel colors, simple clean shapes, gentle cute storybook game scenery, no people")
+NEG_BG = ("lowres, worst quality, blurry, text, letters, watermark, signature, logo, ui, frame, border, people, character, person, emoji, "
+          "realistic, photorealistic, photo, 3d render, oil painting, hyperdetailed, gritty, dramatic realism")
+
+GAME_NOTE = "calm open space in the center, simple uncluttered middle area, soft focus, gentle composition"
+
+THEMES = {
+    "wintersun": {
+        "mood": "winter, snowy, white and soft gold palette, cozy",
+        "bg_mood": "white snow, pine forest, warm golden sun after a long blizzard, new beginning before spring, hopeful",
+        "blocks": [
+            "a single brown pine cone with layered woody scales, a little snow on the tip, object only",
+            "a white snowdrop flower, drooping white bell-shaped petals on a thin green stem with two slim leaves",
+            "a red knitted wool scarf neatly folded, object only, no character",
+            "a cute white snow hare sitting",
+            "a glowing lantern made of ice with a warm candle inside",
+            "a steaming mug of hot cocoa with marshmallows",
+            "a cute red fox sitting in snow, fluffy tail",
+            "a small snowy log cabin with warm glowing windows",
+            "a glowing golden sun crystal gem",
+            "a cute fluffy snowy owl",
+            "a majestic white spirit deer with glowing golden antlers",
+            "a golden rising sun over snowy pine trees with radiant light rays",
+        ],
+        "items": {"rewind": "a golden pocket watch frosted with snow", "hammer": "an ice axe climbing pickaxe with a wooden handle and a steel pick head, object only",
+                  "blueprint": "an open paper map with a dotted red trail and small pine trees, curled edges, object only"},
+        "mascot": "a cute chibi white arctic fox cub, pointy fox ears, long fluffy fox tail, wearing a red scarf, smiling, full body, fox",
+        "lock": "a solid frozen ice cube block with snow on top, light blue",
+        "lock_hit": "a cracked ice cube block breaking apart with deep cracks, light blue",
+        "fx": ["a delicate white snowflake crystal glowing softly",
+               "a tiny golden four-pointed sun sparkle glint",
+               "a soft round white snow puff glowing"],
+        "menu_land": "wide view of a snowy pine forest valley, sun breaking through the clouds with golden light rays, a red fox in the snow, distant mountains",
+        "menu_port": "tall view of a snowy pine forest path, sun breaking through the clouds with golden rays, a red fox and a snow hare",
+        "game_land": "snowy clearing in a pine forest, golden sunlight, " + GAME_NOTE,
+        "game_port": "snowy clearing between tall pine trees, golden sunlight from above, " + GAME_NOTE,
+    },
+    "greek": {
+        "mood": "greek mythology, cream and white marble with gold accents",
+        "bg_mood": "cream marble, golden sunlight, olive trees, divine and peaceful, warm cream color palette",
+        "blocks": [
+            "a small olive branch sprig with green olives",
+            "a golden laurel wreath ring made of leaves, object only, no face",
+            "an ancient greek clay amphora vase with black figure pattern",
+            "a golden lyre harp",
+            "a white marble ionic column",
+            "a small marble statue of an owl",
+            "a white marble statue of pegasus with wings spread",
+            "a sacred flame burning in a golden brazier",
+            "a glowing golden lightning bolt",
+            "a small white greek temple with columns and a triangular roof",
+            "a white marble statue of a greek goddess holding a torch",
+            "a grand golden temple of olympus floating on white clouds, glowing",
+        ],
+        "items": {"rewind": "a golden hourglass with small wings", "hammer": "a heavy bronze and marble war hammer",
+                  "blueprint": "a papyrus scroll with greek key pattern border"},
+        "mascot": "a cute chibi white owl wearing a golden laurel wreath and a small greek toga, smiling, full body",
+        "lock": "a heavy gray stone block with a carved medusa snake relief, petrified stone",
+        "lock_hit": "a cracked gray stone block with a medusa relief crumbling apart",
+        "fx": ["a single soft white feather glowing",
+               "a golden laurel leaf glowing",
+               "a small warm golden light orb sparkle"],
+        "menu_land": "wide view of a white marble greek temple sanctuary with tall columns, marble statues of gods in front, stairs, olive trees, blue sky and sea behind",
+        "menu_port": "tall view of marble stairs leading up to a greek temple, statues of gods, olive trees, golden light",
+        "game_land": "marble courtyard of a greek temple with columns on the sides, " + GAME_NOTE,
+        "game_port": "marble courtyard of a greek temple, columns framing the edges, " + GAME_NOTE,
+    },
+    "youkai": {
+        "mood": "japanese yokai folklore, dark red and black with warm lantern glow, cute but spooky",
+        "bg_mood": "night, dark red color palette, crimson moon, mist, glowing paper lanterns, mysterious, beautiful but eerie, no way out",
+        "blocks": [
+            "a paper ofuda talisman charm with red ink marks",
+            "a white kitsune fox mask with red markings",
+            "a glowing red paper lantern",
+            "a cute karakasa obake one-eyed paper umbrella yokai",
+            "a small cute grey stone jizo buddhist monk statue with a round bald head and closed eyes, wearing a red bib",
+            "a cute tanuki teapot yokai",
+            "a blue spirit flame inside a hanging lantern",
+            "a red torii gate",
+            "a cute white nine-tailed fox spirit sitting, blue flames",
+            "a small haunted japanese teahouse with glowing windows",
+            "a cute parade of small yokai carrying lanterns",
+            "an endless tunnel of red torii gates glowing in the dark",
+        ],
+        "items": {"rewind": "a small silver spirit bell with a red tassel", "hammer": "a golden buddhist shakujo staff with metal rings at the top, object only, no character",
+                  "blueprint": "a folded omikuji fortune paper slip"},
+        "mascot": "a cute chibi kitsune fox spirit child wearing a white fox mask on the side of the head and a red kimono, small blue flame, full body",
+        "lock": "a dark wooden box sealed with many paper ofuda talismans and a shimenawa rope",
+        "lock_hit": "a dark wooden box with torn paper ofuda talismans and a snapped rope",
+        "fx": ["a small glowing blue-violet hitodama spirit flame",
+               "a single crimson red maple leaf glowing",
+               "a tiny glowing orange ember spark"],
+        "menu_land": "wide view of a yokai village at night, old japanese houses with glowing lanterns, red torii path into the mist, crimson moon",
+        "menu_port": "tall view of a narrow street in a yokai village at night, rows of glowing red lanterns, torii gate, crimson moon, mist",
+        "game_land": "dark red shrine courtyard at night with lanterns along the edges, " + GAME_NOTE,
+        "game_port": "dark red shrine courtyard at night, lanterns hanging at the edges, " + GAME_NOTE,
+    },
+    "deepwood": {
+        "mood": "deep blue and teal green color palette, mossy, soft bioluminescent glow",
+        "bg_mood": "deep blue and green, underwater, post apocalyptic flooded city overgrown with rainforest plants, light rays from the surface, fish, lonely, uncanny, quiet",
+        "blocks": [
+            "a small clump of glowing teal moss",
+            "a water fern sprout with tiny bubbles",
+            "a rusty metal road sign board on a short pole, covered with coral, moss and a small sea plant, object only",
+            "an old streetlamp wrapped in vines with glowing coral",
+            "a sunken yellow taxi car overgrown with moss and sea plants",
+            "a cute glowing jellyfish inside a glass lantern",
+            "an old city bus overgrown with vines and seaweed",
+            "a broken billboard overgrown with plants and small fish",
+            "a whale skeleton wrapped in glowing vines",
+            "a drowned skyscraper covered in jungle trees",
+            "a giant ancient sea turtle carrying a small forest on its shell",
+            "a glowing great tree growing from a drowned city tower, teal light",
+        ],
+        "items": {"rewind": "a glass bottle holding a glowing air bubble", "hammer": "a single rusty pipe wrench tool, object only",
+                  "blueprint": "a handheld sonar map screen glowing green"},
+        "mascot": "a cute chibi pink axolotl wearing a small brass diving helmet, full body standing, character only, no circle",
+        "lock": "a thick knot of tangled green vines and roots forming a block",
+        "lock_hit": "a knot of torn tangled green vines, frayed and breaking apart",
+        "fx": ["a small glowing teal bioluminescent spore orb",
+               "a tiny glowing cyan jellyfish",
+               "a small clear air bubble with a white highlight"],
+        "menu_land": "wide view of a flooded overgrown city underwater, skyscrapers covered in vines and trees, schools of fish, light rays from the surface",
+        "menu_port": "tall view of a drowned city street underwater, overgrown buildings, glowing plants, jellyfish, light rays from above",
+        "game_land": "underwater plaza of a drowned city overgrown with plants, " + GAME_NOTE,
+        "game_port": "underwater plaza of a drowned city, overgrown buildings at the edges, " + GAME_NOTE,
+    },
+}

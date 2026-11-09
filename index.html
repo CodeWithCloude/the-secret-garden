@@ -1,0 +1,2520 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>The Secret Garden</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Pacifico&display=swap">
+<style>
+/* Layout: one full-window canvas. The game picks a 1280x720 landscape or 720x1280 portrait stage,
+   scales it to fit, and paints the garden background out to every screen edge. */
+:root {
+  --sky: #bfe4ff;
+  --grass: #a8d88c;
+  --ink: #603c2a;
+  --petal: #ff80a0;
+  --cream: #fff9ec;
+  --display: Pacifico, "Brush Script MT", cursive;
+  --ui: Fredoka, "Comic Sans MS", system-ui, sans-serif;
+  color-scheme: light;
+}
+html { height: 100%; box-sizing: border-box; background: var(--grass); }
+body {
+  height: 100%; margin: 0; overflow: hidden; background: var(--grass); color: var(--ink);
+  font-family: var(--ui); overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+#stage { position: relative; width: 100%; height: 100%; }
+#c { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+#loading {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font: 600 22px var(--ui); color: var(--ink);
+  background: linear-gradient(var(--sky), var(--grass));
+}
+#loading[hidden] { display: none; }
+#codebox { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(40, 30, 20, .55); padding: 16px; }
+#codebox[hidden] { display: none; }
+#codebox .panel { width: min(520px, 100%); background: #fff8ec; color: #5a3e2b; border: 4px solid #7a5236; border-radius: 22px;
+  padding: 18px; font: 600 16px var(--ui); display: grid; gap: 10px; box-sizing: border-box; }
+#codebox h2 { margin: 0; font-size: 22px; text-align: center; }
+#codebox p { margin: 0; font-weight: 500; line-height: 1.35; }
+#codebox textarea { width: 100%; height: 120px; box-sizing: border-box; border: 2px solid #c9a27e; border-radius: 12px; padding: 8px;
+  font: 12px ui-monospace, monospace; resize: none; user-select: text; -webkit-user-select: text; background: #fff; color: #333; }
+#codebox .row { display: flex; gap: 8px; flex-wrap: wrap; }
+#codebox button { flex: 1; min-width: 110px; border: 3px solid #7a5236; border-radius: 14px; padding: 10px; font: 700 16px var(--ui);
+  background: #9fd27a; color: #3c2a1c; cursor: pointer; }
+#codebox button.alt { background: #ffe6b8; }
+#codebox .msg { min-height: 20px; text-align: center; font-size: 14px; }
+</style>
+<div id="stage">
+  <canvas id="c" tabindex="0" aria-label="The Secret Garden game"></canvas>
+  <div id="loading">Planting the garden…</div>
+  <div id="codebox" hidden>
+    <div class="panel">
+      <h2>Save Code</h2>
+      <p>Copy this code on one device, then paste it on another and press Load Code. Works without cookies or sign-in.</p>
+      <textarea id="codetext" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+      <div class="row"><button id="codecopy">Copy Code</button><button id="codeload">Load Code</button></div>
+      <div class="msg" id="codemsg"></div>
+      <div class="row"><button id="codeclose" class="alt">Close</button></div>
+    </div>
+  </div>
+</div>
+<script>
+'use strict';
+// ============================================================== utilities
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const fmt = n => Math.floor(n).toLocaleString('en-US');
+function rng(seed) {
+  let a = seed >>> 0 || 1;
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const uni = (r, a, b) => a + (b - a) * r();
+const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    r = Math.max(0, Math.min(typeof r === 'number' ? r : 0, w / 2, h / 2));
+    this.moveTo(x + r, y); this.arcTo(x + w, y, x + w, y + h, r); this.arcTo(x + w, y + h, x, y + h, r);
+    this.arcTo(x, y + h, x, y, r); this.arcTo(x, y, x + w, y, r); this.closePath();
+  };
+}
+function mk(w, h, q = 1) {
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(w * q)); cv.height = Math.max(1, Math.round(h * q));
+  const g = cv.getContext('2d'); g.scale(q, q); cv.dw = w; cv.dh = h;
+  return [cv, g];
+}
+
+// ============================================================== drawing primitives
+const OLc = [96, 60, 42], OL = 'rgb(96,60,42)';
+const col = (c, a) => a == null ? `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})` : `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+const lerpC = (a, b, t) => { t = clamp(t, 0, 1); return [0, 1, 2].map(i => a[i] + (b[i] - a[i]) * t); };
+const shade = (c, f) => f >= 0 ? lerpC(c, [255, 255, 255], f) : lerpC(c, [0, 0, 0], -f);
+function fs(g, c, ow, ol) {
+  g.fillStyle = typeof c === 'string' ? c : col(c); g.fill();
+  if (ow > 0 && ol !== null) { g.lineWidth = ow; g.lineJoin = 'round'; g.strokeStyle = ol ? (typeof ol === 'string' ? ol : col(ol)) : OL; g.stroke(); }
+}
+function circ(g, c, x, y, r, ow = 2, ol) { g.beginPath(); g.arc(x, y, Math.max(0.5, r), 0, TAU); fs(g, c, ow, ol); }
+function ell(g, c, x, y, w, h, ow = 2, ol) { g.beginPath(); g.ellipse(x + w / 2, y + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, 0, TAU); fs(g, c, ow, ol); }
+function rr(g, c, x, y, w, h, r, ow = 2, ol) { g.beginPath(); g.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2)); fs(g, c, ow, ol); }
+function poly(g, c, pts, ow = 2, ol) { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); fs(g, c, ow, ol); }
+function line(g, c, a, b, w) { g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.lineWidth = w; g.lineCap = 'round'; g.strokeStyle = typeof c === 'string' ? c : col(c); g.stroke(); }
+function glow(g, x, y, r, c, alpha = 140) {
+  const gr = g.createRadialGradient(x, y, 0, x, y, r);
+  gr.addColorStop(0, col(c, alpha / 255)); gr.addColorStop(0.45, col(c, alpha / 255 * 0.45)); gr.addColorStop(1, col(c, 0));
+  g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+}
+function starPts(cx, cy, ro, ri, n = 5, rot = -Math.PI / 2) {
+  const p = [];
+  for (let i = 0; i < n * 2; i++) { const r = i % 2 ? ri : ro, a = rot + i * Math.PI / n; p.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  return p;
+}
+function sparkle(g, x, y, r, c = [255, 255, 255]) { poly(g, c, starPts(x, y, r, r * 0.28, 4, 0), 0); }
+function leaf(g, base, tip, width, c, ow = 2) {
+  const [bx, by] = base, [tx, ty] = tip, dx = tx - bx, dy = ty - by, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+  const l = [], r = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12, w = width * Math.pow(Math.sin(Math.PI * t), 0.8), px = bx + dx * t, py = by + dy * t;
+    l.push([px + nx * w, py + ny * w]); r.push([px - nx * w, py - ny * w]);
+  }
+  poly(g, c, l.concat(r.reverse()), ow);
+  line(g, shade(c, -0.25), base, [bx + dx * 0.7, by + dy * 0.7], Math.max(1, ow - 1));
+}
+function dome(g, x, y, w, h, c, cut, ow) {
+  g.save(); g.beginPath(); g.rect(x - ow * 2, y - ow * 2, w + ow * 4, h * cut + ow * 2); g.clip();
+  ell(g, c, x, y, w, h, ow); g.restore();
+  const k = (cut - 0.5) * 2, hw = (w / 2) * Math.sqrt(Math.max(0, 1 - k * k));
+  line(g, OL, [x + w / 2 - hw, y + h * cut], [x + w / 2 + hw, y + h * cut], ow);
+}
+function arch(g, cx, cy, R, thick, c, ow = 2) {
+  g.beginPath(); g.arc(cx, cy, R, Math.PI, TAU); g.arc(cx, cy, R - thick, TAU, Math.PI, true); g.closePath(); fs(g, c, ow);
+}
+function grassTuft(g, cx, y, w, c = [108, 186, 84]) {
+  for (let i = 0; i < 5; i++) {
+    const x = cx - w / 2 + w * i / 4, h = w * (0.35 + 0.25 * ((i * 37) % 3) / 2);
+    poly(g, c, [[x - w * 0.08, y], [x + w * 0.08, y], [x + (i - 2) * w * 0.04, y - h]], 0);
+  }
+}
+
+// ============================================================== fonts & text
+const FONT = {
+  ui: s => `600 ${s}px Fredoka, "Comic Sans MS", system-ui, sans-serif`,
+  num: s => `700 ${s}px Fredoka, "Arial Black", system-ui, sans-serif`,
+  body: s => `500 ${s}px Fredoka, "Segoe UI", system-ui, sans-serif`,
+  title: s => `400 ${s}px Pacifico, "Brush Script MT", cursive`,
+};
+function T(g, str, x, y, o = {}) {
+  const { size = 24, color = [255, 255, 255], outline = OLc, ow = 2, kind = 'ui', align = 'center', alpha = 1 } = o;
+  g.font = FONT[kind](size); g.textAlign = align; g.textBaseline = 'middle';
+  if (alpha < 1) g.globalAlpha = alpha;
+  if (outline && ow) { g.lineWidth = ow * 2; g.lineJoin = 'round'; g.strokeStyle = col(outline); g.strokeText(str, x, y); }
+  g.fillStyle = col(color); g.fillText(str, x, y);
+  if (alpha < 1) g.globalAlpha = 1;
+}
+function textW(g, str, size, kind = 'ui') { g.font = FONT[kind](size); return g.measureText(str).width; }
+// largest size up to `size` at which `str` fits in `maxW`
+function fit(g, str, size, maxW, kind = 'body') { const w = textW(g, str, size, kind); return w <= maxW ? size : Math.max(11, Math.floor(size * maxW / w)); }
+function wrapLines(g, txt, width, size, kind = 'body') {
+  g.font = FONT[kind](size);
+  const lines = []; let cur = '';
+  for (const w of txt.split(' ')) {
+    const t = (cur + ' ' + w).trim();
+    if (g.measureText(t).width <= width) cur = t; else { if (cur) lines.push(cur); cur = w; }
+  }
+  lines.push(cur); return lines;
+}
+
+// ============================================================== decorations
+const NAMES = ['', 'Sugar Sprout', 'Daisy Pot', 'Tulip Planter', 'Candy Mushroom', 'Garden Lantern', 'Bird Bath',
+  'Cozy Bench', 'Rose Arch', 'Cream Fountain', 'Garden Gazebo', 'Glass Greenhouse', 'Great Vanilla Tree'];
+const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const TIER = [null, ...['#e6f6cf', '#fde0e6', '#ffe6bf', '#ffd5d0', '#fff0b0', '#d4ebff', '#efdcc6', '#fbd2ea', '#cdf2ee', '#e4d9ff', '#d4f5d4', '#ffe27a'].map(hex)];
+
+function deco(g, lv, s) {
+  const o = Math.max(2, s / 42);
+  const P = (x, y) => [x * s, y * s];
+  const E = (c, x, y, w, h, ow = o, ol) => ell(g, c, x * s, y * s, w * s, h * s, ow, ol);
+  const R = (c, x, y, w, h, r, ow = o, ol) => rr(g, c, x * s, y * s, w * s, h * s, r * s, ow, ol);
+  const C = (c, x, y, r, ow = o, ol) => circ(g, c, x * s, y * s, r * s, ow, ol);
+  const Pl = (c, pts, ow = o) => poly(g, c, pts.map(p => P(p[0], p[1])), ow);
+  const Ln = (c, a, b, w) => line(g, c, P(a[0], a[1]), P(b[0], b[1]), w);
+  const Lf = (a, b, w, c, ow = o) => leaf(g, P(a[0], a[1]), P(b[0], b[1]), w * s, c, ow);
+  const stem = [86, 160, 70], W = [255, 255, 255];
+  switch (lv) {
+    case 1:
+      E([139, 92, 62], .24, .62, .52, .22); E([168, 113, 78], .32, .64, .3, .09, 0);
+      Ln(stem, [.5, .68], [.5, .42], Math.max(3, s / 22));
+      Lf([.5, .46], [.26, .32], .1, [126, 206, 96]); Lf([.5, .42], [.74, .28], .1, [146, 220, 110]);
+      sparkle(g, s * .76, s * .55, s * .05); break;
+    case 2:
+      Ln(stem, [.5, .58], [.5, .33], Math.max(3, s / 22));
+      Lf([.5, .5], [.32, .42], .06, [126, 206, 96]); Lf([.5, .48], [.68, .4], .06, [126, 206, 96]);
+      Pl([222, 122, 78], [[.32, .6], [.68, .6], [.62, .86], [.38, .86]]); R([238, 142, 94], .28, .55, .44, .09, .03);
+      for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5; C(W, .5 + Math.cos(a) * .1, .28 + Math.sin(a) * .1, .065); }
+      C([255, 205, 60], .5, .28, .075); C([255, 230, 130], .48, .26, .025, 0); break;
+    case 3: {
+      const cols = [[240, 86, 96], [255, 150, 190], [255, 210, 80]];
+      [.32, .5, .68].forEach((x, i) => {
+        const top = i === 1 ? .3 : .38, w = .13;
+        Ln(stem, [x, .64], [x, top + .08], Math.max(3, s / 26));
+        Lf([x, .62], [x + (i !== 1 ? .1 : -.1), .48], .045, [120, 200, 92]);
+        Pl(cols[i], [[x - w / 2, top], [x - w / 4, top + .05], [x, top - .02], [x + w / 4, top + .05], [x + w / 2, top],
+          [x + w / 2, top + .08], [x, top + .14], [x - w / 2, top + .08]]);
+      });
+      R([184, 124, 80], .18, .62, .64, .22, .03);
+      for (const y of [.69, .76]) Ln([150, 98, 62], [.2, y], [.8, y], Math.max(1, o - 1));
+      break;
+    }
+    case 4:
+      grassTuft(g, s * .5, s * .84, s * .5);
+      R([255, 244, 222], .39, .46, .22, .36, .08);
+      C(OLc, .46, .6, .018, 0); C(OLc, .54, .6, .018, 0);
+      g.beginPath(); g.arc(s * .5, s * .62, s * .035, .15 * Math.PI, .85 * Math.PI); g.lineWidth = Math.max(1, o - 1); g.strokeStyle = OL; g.stroke();
+      dome(g, s * .16, s * .18, s * .68, s * .56, [238, 82, 80], .52, o);
+      for (const [x, y, r] of [[.32, .36, .05], [.5, .27, .06], [.67, .37, .045], [.44, .42, .03], [.6, .3, .025]]) C([255, 250, 240], x, y, r, 0);
+      break;
+    case 5:
+      glow(g, s * .5, s * .36, s * .32, [255, 220, 120], 170);
+      R([90, 100, 120], .46, .44, .08, .38, .02); R([120, 128, 150], .36, .8, .28, .07, .02);
+      R([255, 236, 160], .37, .24, .26, .22, .04); Ln([214, 168, 70], [.5, .25], [.5, .45], o);
+      glow(g, s * .5, s * .35, s * .1, [255, 255, 230], 220);
+      Pl([90, 100, 120], [[.32, .25], [.5, .12], [.68, .25]]); C([230, 186, 80], .5, .11, .035);
+      R([214, 168, 70], .35, .44, .3, .05, .02); break;
+    case 6: {
+      Pl([205, 198, 222], [[.44, .48], [.56, .48], [.6, .8], [.4, .8]]); E([190, 182, 210], .3, .76, .4, .1);
+      E([215, 208, 232], .17, .36, .66, .18); E([130, 205, 250], .23, .38, .54, .09);
+      Ln([220, 245, 255], [.32, .42], [.42, .42], o);
+      const bx = .68, by = .3;
+      C([120, 170, 245], bx, by, .07); C([120, 170, 245], bx - .06, by - .05, .05);
+      Pl([255, 190, 70], [[bx - .11, by - .06], [bx - .15, by - .04], [bx - .1, by - .03]], 1);
+      C(OLc, bx - .07, by - .06, .012, 0); C([255, 170, 190], bx - .045, by - .035, .014, 0); break;
+    }
+    case 7:
+      grassTuft(g, s * .25, s * .86, s * .25); grassTuft(g, s * .78, s * .86, s * .25);
+      for (const x of [.22, .74]) R([90, 80, 90], x, .55, .05, .3, .01);
+      R([205, 142, 86], .16, .26, .68, .09, .03); R([205, 142, 86], .16, .39, .68, .09, .03);
+      R([226, 168, 108], .12, .54, .76, .1, .03);
+      C([255, 160, 180], .26, .22, .04); C([255, 160, 180], .72, .22, .04); C([255, 230, 120], .5, .22, .035); break;
+    case 8:
+      Pl([240, 226, 196], [[.4, .85], [.6, .85], [.56, .6], [.44, .6]], 0);
+      for (const x of [.2, .72]) R(W, x, .42, .08, .44, .02);
+      arch(g, s * .5, s * .45, s * .32, s * .08, W, o);
+      for (let i = 0; i < 9; i++) {
+        const a = Math.PI + i * Math.PI / 8, x = .5 + Math.cos(a) * .28, y = .45 + Math.sin(a) * .28;
+        Lf([x, y], [x + Math.cos(a + 1.2) * .09, y + Math.sin(a + 1.2) * .09], .03, [110, 190, 90], 1);
+      }
+      for (let i = 0; i < 7; i++) {
+        const a = Math.PI + (i + .5) * Math.PI / 7, x = .5 + Math.cos(a) * .28, y = .45 + Math.sin(a) * .28;
+        C(i % 2 ? [238, 92, 130] : [255, 150, 180], x, y, .045); C([255, 210, 225], x - .01, y - .01, .015, 0);
+      }
+      for (const y of [.55, .7]) { C([238, 92, 130], .24, y, .035); C([255, 150, 180], .76, y + .06, .035); }
+      break;
+    case 9: {
+      E([214, 208, 234], .1, .62, .8, .24); E([120, 200, 250], .16, .64, .68, .13);
+      R([214, 208, 234], .45, .36, .1, .32, .02); E([225, 220, 242], .27, .32, .46, .12);
+      E([140, 212, 252], .32, .33, .36, .06, 0); R([225, 220, 242], .47, .18, .06, .16, .02);
+      const water = [170, 225, 255];
+      for (const side of [-1, 1]) for (let k = 0; k < 6; k++) { const t = k / 5; C(water, .5 + side * (.2 + .08 * t), .38 + .26 * t * t, .022, 0); }
+      for (let k = 0; k < 5; k++) { const a = -Math.PI / 2 + (k - 2) * .45; C(water, .5 + Math.cos(a) * .09, .16 + Math.sin(a) * .06, .02, 0); }
+      sparkle(g, s * .78, s * .24, s * .05); sparkle(g, s * .24, s * .56, s * .035); break;
+    }
+    case 10:
+      R([226, 214, 196], .14, .76, .72, .1, .02);
+      for (const x of [.2, .37, .58, .75]) R(W, x, .4, .05, .37, .01);
+      R(W, .18, .62, .64, .04, .01);
+      Pl([120, 205, 196], [[.1, .42], [.5, .12], [.9, .42]]);
+      for (let i = 0; i < 7; i++) C([150, 222, 212], .14 + i * .12, .43, .055);
+      g.fillStyle = col([150, 222, 212]); g.fillRect(s * .12, s * .36, s * .76, s * .06);
+      Ln(W, [.3, .32], [.5, .17], Math.max(2, o)); C([240, 196, 80], .5, .11, .04);
+      C([255, 160, 190], .3, .8, .035); C([255, 160, 190], .68, .8, .035); break;
+    case 11: {
+      const frame = [[.14, .42], [.5, .16], [.86, .42], [.86, .84], [.14, .84]];
+      Pl('rgba(200,245,255,0.85)', frame, 0);
+      for (const [x, y, r, c] of [[.3, .72, .1, [96, 180, 84]], [.5, .68, .12, [120, 200, 96]], [.7, .73, .09, [96, 180, 84]]]) C(c, x, y, r, 0);
+      for (const [x, y] of [[.3, .66], [.52, .6], [.7, .7]]) C([255, 140, 170], x, y, .025, 0);
+      g.beginPath(); frame.forEach((p, i) => i ? g.lineTo(p[0] * s, p[1] * s) : g.moveTo(p[0] * s, p[1] * s)); g.closePath();
+      g.lineJoin = 'round'; g.lineWidth = o + 4; g.strokeStyle = OL; g.stroke(); g.lineWidth = o + 1; g.strokeStyle = '#fff'; g.stroke();
+      for (const x of [.32, .5, .68]) Ln(W, [x, x === .5 ? .16 : .42], [x, .84], o);
+      Ln(W, [.14, .42], [.86, .42], o); Ln(W, [.14, .62], [.86, .62], Math.max(1, o - 1)); Ln(W, [.2, .5], [.27, .45], Math.max(2, o));
+      R([184, 124, 80], .12, .82, .76, .07, .02); break;
+    }
+    case 12: {
+      glow(g, s * .5, s * .42, s * .48, [255, 236, 150], 200);
+      Pl([176, 120, 78], [[.44, .88], [.47, .5], [.53, .5], [.56, .88], [.66, .9], [.34, .9]]);
+      Ln([176, 120, 78], [.5, .6], [.36, .48], Math.max(3, s / 24)); Ln([176, 120, 78], [.5, .58], [.66, .46], Math.max(3, s / 24));
+      const blobs = [[.5, .3, .2], [.3, .38, .15], [.7, .38, .15], [.38, .22, .14], [.62, .22, .14], [.5, .45, .14], [.22, .48, .1], [.78, .48, .1]];
+      for (const [x, y, r] of blobs) circ(g, OLc, x * s, y * s, r * s + o, 0);
+      for (const [x, y, r] of blobs) C([255, 246, 214], x, y, r, 0);
+      for (const [x, y, r] of blobs) C([255, 255, 240], x - r * .3, y - r * .3, r * .45, 0);
+      const rnd = rng(12);
+      for (let i = 0; i < 14; i++) { const x = uni(rnd, .2, .8), y = uni(rnd, .14, .52); C(rnd() < .5 ? [255, 176, 200] : [255, 214, 110], x, y, .022, 0); }
+      for (const [x, y, r] of [[.16, .2, .05], [.84, .16, .04], [.86, .66, .035], [.5, .06, .04]]) sparkle(g, s * x, s * y, s * r, [255, 250, 210]);
+      break;
+    }
+  }
+}
+
+const BLOCK_PX = 256;
+function makeBlock(lv, locked = false) {
+  const s = BLOCK_PX, [cv, g] = mk(s, s), o = Math.max(2, s / 40), base = locked ? [226, 218, 210] : C.tiers[lv], rad = s * .2;
+  rr(g, shade(base, -.28), 0, s * .04, s, s - s * .04, rad, 0);
+  rr(g, base, 0, 0, s, s - s * .06, rad, 0);
+  rr(g, 'rgba(255,255,255,0.35)', s * .08, s * .05, s * .84, s * .3, rad, 0);
+  g.beginPath(); g.roundRect(o / 2, o / 2, s - o, s - o, rad); g.lineWidth = o; g.strokeStyle = OL; g.stroke();
+  const [dc, dg] = mk(s, s), pic = themeImg('block_' + lv);
+  if (pic) dg.drawImage(pic, s * .08, s * .06, s * .84, s * .84);
+  else if (TH.id === 'garden') deco(dg, lv, s);
+  else T(dg, '?', s / 2, s / 2, { size: s * .4, color: C.ink, outline: null, kind: 'num' });
+  if (locked) { dg.globalCompositeOperation = 'source-in'; dg.fillStyle = 'rgb(92,78,104)'; dg.fillRect(0, 0, s, s); }
+  g.drawImage(dc, 0, -s * .03);
+  const bx = s * .83, by = s * .82, br = s * .13;
+  circ(g, OLc, bx, by, br + o, 0); circ(g, lv < 12 ? C.accent : [240, 180, 40], bx, by, br, 0);
+  T(g, String(lv), bx, by + 1, { size: Math.round(s * (lv >= 10 ? .17 : .2)), kind: 'num', outline: null });
+  return cv;
+}
+
+// ============================================================== characters & icons
+function makeGnome(s) {
+  const [cv, g] = mk(s, s), o = Math.max(2, s / 40), P = (x, y) => [x * s, y * s];
+  ell(g, [110, 150, 230], s * .24, s * .56, s * .52, s * .4, o);
+  ell(g, [90, 70, 60], s * .28, s * .88, s * .18, s * .09, o); ell(g, [90, 70, 60], s * .54, s * .88, s * .18, s * .09, o);
+  poly(g, [255, 255, 255], [P(.3, .5), P(.7, .5), P(.64, .74), P(.5, .84), P(.36, .74)], o);
+  circ(g, [255, 214, 176], s * .5, s * .46, s * .16, o); circ(g, [255, 160, 140], s * .5, s * .5, s * .05, o);
+  circ(g, OLc, s * .43, s * .43, s * .022, 0); circ(g, OLc, s * .57, s * .43, s * .022, 0);
+  circ(g, [255, 170, 170], s * .38, s * .5, s * .03, 0); circ(g, [255, 170, 170], s * .62, s * .5, s * .03, 0);
+  poly(g, [255, 120, 160], [P(.28, .38), P(.55, .02), P(.72, .38)], o);
+  rr(g, [255, 160, 190], s * .26, s * .34, s * .48, s * .08, s * .04, o);
+  poly(g, [255, 236, 120], starPts(s * .52, s * .22, s * .06, s * .025), 0);
+  return cv;
+}
+function makeIcon(kind, s) {
+  const [cv, g] = mk(s, s), o = Math.max(2, s / 30), P = (x, y) => [x * s, y * s], W = [255, 255, 255];
+  switch (kind) {
+    case 'hammer':
+      g.translate(s * .5, s * .52); g.rotate(-35 * Math.PI / 180);
+      rr(g, [196, 132, 82], -s * .05, -s * .05, s * .1, s * .45, s * .02, o);
+      rr(g, [255, 120, 150], -s * .3, -s * .24, s * .6, s * .24, s * .04, o);
+      rr(g, [255, 200, 215], -s * .26, -s * .2, s * .36, s * .06, s * .03, 0); break;
+    case 'rewind': {
+      circ(g, [140, 86, 56], s * .5, s * .5, s * .42, o); circ(g, [170, 110, 72], s * .45, s * .43, s * .3, 0);
+      const cx = s * .5, cy = s * .5, R = s * .24, th = -0.85 * Math.PI;
+      g.beginPath(); g.arc(cx, cy, R, th + 0.25, th + 1.75 * Math.PI); g.lineWidth = Math.max(3, s / 10); g.lineCap = 'round'; g.strokeStyle = '#fff'; g.stroke();
+      const px = cx + Math.cos(th) * R, py = cy + Math.sin(th) * R, tx = Math.sin(th), ty = -Math.cos(th), nx = Math.cos(th), ny = Math.sin(th);
+      poly(g, W, [[px + tx * s * .15, py + ty * s * .15], [px + nx * s * .13 - tx * s * .03, py + ny * s * .13 - ty * s * .03], [px - nx * s * .13 - tx * s * .03, py - ny * s * .13 - ty * s * .03]], 0);
+      break;
+    }
+    case 'blueprint':
+      rr(g, [90, 150, 230], s * .14, s * .12, s * .72, s * .76, s * .06, o);
+      for (let i = 1; i < 4; i++) { line(g, [170, 205, 255], P(.14 + i * .18, .14), P(.14 + i * .18, .86), 1); line(g, [170, 205, 255], P(.16, .12 + i * .19), P(.84, .12 + i * .19), 1); }
+      poly(g, [255, 120, 160], [P(.34, .6), P(.5, .3), P(.66, .6)], o);
+      rr(g, W, s * .3, s * .6, s * .4, s * .08, 4, 0);
+      poly(g, [200, 225, 255], [P(.66, .88), P(.86, .88), P(.86, .7)], 0); break;
+    case 'seal': {
+      const pts = [];
+      for (let i = 0; i < 24; i++) { const r = s * (i % 2 ? .39 : .44), a = i * Math.PI / 12; pts.push([s * .5 + Math.cos(a) * r, s * .5 + Math.sin(a) * r]); }
+      poly(g, [230, 70, 90], pts, o); circ(g, [250, 110, 120], s * .5, s * .5, s * .28, Math.max(1, o - 1), [190, 40, 60]);
+      poly(g, [255, 230, 120], starPts(s * .5, s * .52, s * .2, s * .09), 0); break;
+    }
+    case 'point':
+      circ(g, [214, 160, 60], s * .5, s * .54, s * .4, o); circ(g, [250, 206, 96], s * .5, s * .5, s * .4, o);
+      circ(g, [255, 228, 140], s * .5, s * .5, s * .29, Math.max(1, o - 1), [214, 160, 60]);
+      flower(g, s * .5, s * .5, s * .09, [255, 246, 220]); sparkle(g, s * .76, s * .22, s * .09); break;
+    case 'pause': for (const x of [.32, .56]) rr(g, W, s * x, s * .28, s * .12, s * .44, s * .04, 0); break;
+    case 'music': case 'mute':
+      ell(g, W, s * .28, s * .6, s * .22, s * .16, 0);
+      line(g, W, P(.48, .67), P(.48, .26), Math.max(3, o));
+      poly(g, W, [P(.48, .24), P(.72, .31), P(.72, .42), P(.48, .35)], 0);
+      if (kind === 'mute') line(g, [255, 90, 110], P(.2, .2), P(.8, .8), Math.max(4, o + 1));
+      break;
+    case 'book':
+      rr(g, [120, 190, 110], s * .16, s * .14, s * .68, s * .74, s * .06, o);
+      rr(g, [255, 248, 228], s * .22, s * .2, s * .56, s * .62, s * .04, 0);
+      leaf(g, P(.5, .72), P(.5, .3), s * .11, [126, 206, 96], Math.max(1, o - 1)); break;
+    case 'trophy': case 'trophy_off': {
+      const gold = kind === 'trophy' ? [250, 200, 80] : [196, 186, 172], dark = kind === 'trophy' ? [214, 150, 50] : [150, 140, 128];
+      for (const sx of [-1, 1]) { g.beginPath(); g.arc(s * (.5 + sx * .27), s * .36, s * .11, 0, TAU); g.lineWidth = Math.max(3, s / 14); g.strokeStyle = col(dark); g.stroke(); }
+      poly(g, gold, [P(.24, .18), P(.76, .18), P(.68, .5), P(.58, .6), P(.42, .6), P(.32, .5)], o);
+      rr(g, dark, s * .44, s * .6, s * .12, s * .12, 2, o);
+      rr(g, gold, s * .3, s * .72, s * .4, s * .12, s * .03, o);
+      if (kind === 'trophy') poly(g, [255, 246, 200], starPts(s * .5, s * .36, s * .1, s * .045), 0); break;
+    }
+    case 'shop':
+      rr(g, [255, 248, 228], s * .18, s * .42, s * .64, s * .42, s * .04, o);
+      for (let i = 0; i < 4; i++) poly(g, i % 2 ? W : [255, 120, 160], [P(.14 + i * .18, .26), P(.32 + i * .18, .26), P(.32 + i * .18, .44), P(.14 + i * .18, .44)], Math.max(1, o - 1));
+      rr(g, [184, 124, 80], s * .4, s * .58, s * .2, s * .26, s * .03, Math.max(1, o - 1)); break;
+  }
+  return cv;
+}
+
+// ============================================================== backgrounds
+function hills(g, w, h, baseY, amp, c, seed) {
+  const r = rng(seed), ph = [uni(r, 0, 6.28), uni(r, 0, 6.28), uni(r, 0, 6.28)];
+  g.beginPath(); g.moveTo(0, h);
+  for (let x = 0; x <= w + 8; x += 8) g.lineTo(x, baseY + amp * (.6 * Math.sin(x / 260 + ph[0]) + .3 * Math.sin(x / 120 + ph[1]) + .1 * Math.sin(x / 50 + ph[2])));
+  g.lineTo(w, h); g.closePath(); g.fillStyle = col(c); g.fill();
+}
+function cloud(g, x, y, sc) {
+  g.fillStyle = 'rgba(255,255,255,0.85)';
+  for (const [cx, cy, r] of [[60, 70, 40], [110, 50, 52], [165, 62, 44], [205, 76, 30], [130, 80, 40]]) { g.beginPath(); g.arc(x + cx * sc, y + cy * sc, r * sc, 0, TAU); g.fill(); }
+}
+function hedge(g, x, y, w, h, seed) {
+  const r = rng(seed), dark = [62, 140, 78], mid = [84, 170, 92], light = [124, 204, 112];
+  rr(g, OLc, x - 3, y - 3, w + 6, h + 6, 26, 0); rr(g, mid, x, y, w, h, 24, 0);
+  g.save(); g.beginPath(); g.roundRect(x, y, w, h, 24); g.clip();
+  for (let i = 0; i < w * h / 900; i++) circ(g, r() < .5 ? dark : light, uni(r, x + 10, x + w - 10), uni(r, y + 10, y + h - 10), uni(r, 8, 18), 0);
+  g.fillStyle = col(dark); g.fillRect(x, y + h - 14, w, 14); g.restore();
+  for (let i = 0; i <= w / 26; i++) circ(g, light, x + 13 + i * 26, y + 6, 16, 0);
+}
+function flower(g, x, y, r, c) {
+  for (let i = 0; i < 5; i++) { const a = i * TAU / 5; circ(g, c, x + Math.cos(a) * r, y + Math.sin(a) * r, r * .8, 0); }
+  circ(g, [255, 214, 80], x, y, r * .6, 0);
+}
+const FLOWER_COLS = [[255, 150, 190], [255, 255, 255], [255, 214, 90], [200, 170, 255], [255, 120, 140]];
+function flowerBed(g, w, h, y0, seed, density = 1) {
+  const r = rng(seed), n = w / 1280;
+  for (let i = 0; i < 18 * density * n + 4; i++) circ(g, [70, 156, 80], uni(r, -40, w + 40), y0 + uni(r, 10, 60), uni(r, 50, 90), 0);
+  for (let i = 0; i < 16 * density * n + 4; i++) circ(g, [98, 182, 92], uni(r, -40, w + 40), y0 + uni(r, 30, 80), uni(r, 40, 70), 0);
+  for (let i = 0; i < 70 * density * n * Math.max(1, (h - y0) / 130); i++) flower(g, uni(r, 0, w), y0 + uni(r, 0, h - y0), uni(r, 5, 10), pick(r, FLOWER_COLS));
+}
+function skyBase(g, w, h, top, bottom) {
+  const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, col(top)); gr.addColorStop(1, col(bottom));
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+}
+// The stage is DW x DH; the layout block (BW x BH) sits centered at (ox, oy).
+function makeMenuBg(DW, DH, BW, BH, ox, oy, q) {
+  const [cv, g] = mk(DW, DH, q);
+  skyBase(g, DW, DH, [168, 220, 255], [255, 226, 240]);
+  glow(g, DW * .82, oy + BH * .12, 260, [255, 250, 210], 200);
+  cloud(g, ox + 60, oy + 40, 1); cloud(g, DW - 400, oy + 90, .8); cloud(g, DW * .33, oy + 10, .6);
+  hills(g, DW, DH, oy + BH * .5, 30, [190, 228, 170], 3); hills(g, DW, DH, oy + BH * .58, 24, [160, 214, 140], 7);
+  const cx = DW / 2;
+  poly(g, [246, 232, 204], [[cx - BW * .06, oy + BH * .62], [cx + BW * .06, oy + BH * .62], [cx + BW * .22, DH], [cx - BW * .22, DH]], 0);
+  const r = rng(5);
+  for (let i = 0; i < 40; i++) {
+    const y = uni(r, oy + BH * .64, DH), t = (y - oy - BH * .62) / (DH - oy - BH * .62), x = cx + uni(r, -1, 1) * (BW * .06 + BW * .16 * t);
+    ell(g, [230, 210, 176], x, y, 18 + 26 * t, 7 + 10 * t, 0);
+  }
+  const gap = Math.min(210, BW * .3), pw = 54;
+  hedge(g, -30, oy + BH * .3, cx - gap - 30, BH * .42, 11);
+  hedge(g, cx + gap + 30, oy + BH * .3, DW, BH * .42, 12);
+  const ph = BH * .44, py = oy + BH * .3;
+  glow(g, cx, oy + BH * .5, 260, [255, 248, 200], 230);
+  for (const x of [cx - gap - pw / 2, cx + gap - pw / 2]) {
+    rr(g, [244, 236, 222], x, py, pw, ph, 8, 3); rr(g, [255, 248, 236], x - 8, py - BH * .02, pw + 16, 26, 8, 3);
+    rr(g, [230, 220, 204], x - 8, py + ph - 10, pw + 16, 26, 8, 3);
+  }
+  const ay = oy + BH * .31;
+  arch(g, cx, ay, gap + pw / 2 + 8, pw + 16, [250, 242, 228], 3);
+  const rad = gap + 8, rr2 = rng(21);
+  for (let i = 0; i < 34; i++) {
+    const a = Math.PI + i * Math.PI / 33, x = cx + Math.cos(a) * rad, y = ay + Math.sin(a) * rad, b = a + uni(rr2, .8, 2.2);
+    leaf(g, [x, y], [x + Math.cos(b) * 34, y + Math.sin(b) * 34], 9, [112, 192, 92], 2);
+  }
+  for (let i = 0; i < 18; i++) {
+    const a = Math.PI + (i + .5) * Math.PI / 18;
+    circ(g, pick(rr2, [[238, 92, 130], [255, 150, 180], [255, 255, 255]]), cx + Math.cos(a) * rad, ay + Math.sin(a) * rad, 12, 2);
+  }
+  for (const side of [-1, 1]) {
+    const x = cx + side * gap;
+    for (let k = 0; k * 38 < ph - 40; k++) {
+      const y = oy + BH * .34 + k * 38;
+      leaf(g, [x, y], [x + side * 26 + uni(rr2, -8, 8), y + 20], 8, [112, 192, 92], 2);
+      if (k % 2 === 0) circ(g, [255, 150, 180], x + side * 8, y + 8, 9, 2);
+    }
+  }
+  flowerBed(g, DW, DH, oy + BH * .82, 31);
+  return cv;
+}
+function makeGameBg(DW, DH, BH, oy, skip, q) {
+  const [cv, g] = mk(DW, DH, q);
+  skyBase(g, DW, DH, [190, 232, 255], [214, 240, 200]);
+  glow(g, DW * .5, oy + BH * .05, 300, [255, 252, 220], 160);
+  cloud(g, 40, oy + 10, .7); cloud(g, DW - 280, oy + 30, .6);
+  hills(g, DW, DH, oy + BH * .3, 18, [186, 226, 166], 41);
+  g.fillStyle = col([168, 216, 140]); g.fillRect(0, oy + BH * .36, DW, DH);
+  const r = rng(77);
+  for (let i = 0; i < 160 * DW * DH / 921600; i++) {
+    const x = uni(r, 0, DW), y = uni(r, oy + BH * .38, DH);
+    line(g, [150, 202, 122], [x, y], [x + uni(r, -3, 3), y - uni(r, 5, 10)], 2);
+  }
+  for (let i = 0; i < 60 * DW * DH / 921600; i++) {
+    const x = uni(r, 0, DW), y = uni(r, oy + BH * .4, DH);
+    if (skip && x > skip[0] - 30 && x < skip[0] + skip[2] + 30 && y > skip[1] - 30 && y < skip[1] + skip[3] + 30) continue;
+    flower(g, x, y, uni(r, 4, 8), pick(r, FLOWER_COLS));
+  }
+  flowerBed(g, DW, DH, Math.max(oy + BH * .94, DH - 60), 9, .6);
+  return cv;
+}
+function makeBoard(cell, gap, q) {
+  const size = 4 * cell + 5 * gap, [cv, g] = mk(size + 40, size + 40, q);
+  rr(g, 'rgba(40,60,30,0.28)', 14, 26, size + 16, size + 12, 36, 0);
+  rr(g, OLc, 6, 6, size + 28, size + 28, 34, 0);
+  rr(g, C.frame, 9, 9, size + 22, size + 22, 32, 0);
+  g.save(); g.beginPath(); g.roundRect(9, 9, size + 22, size + 22, 32); g.clip(); g.fillStyle = col(C.frameTop); g.fillRect(9, 9, size + 22, size / 2); g.restore();
+  rr(g, C.inner, 18, 18, size + 4, size + 4, 24, 0);
+  rr(g, C.bed, 20, 20, size, size, 22, 0);
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+    const cx = 20 + gap + c * (cell + gap), cy = 20 + gap + r * (cell + gap), cc = (r + c) % 2 ? C.cellB : C.cellA;
+    rr(g, C.cellLow, cx, cy + 4, cell, cell - 2, cell * .2, 0); rr(g, cc, cx, cy, cell, cell - 4, cell * .2, 0);
+    const rn = rng(r * 4 + c + 1);
+    for (let k = 0; k < 5; k++) { const gx = cx + uni(rn, 15, cell - 15), gy = cy + uni(rn, 15, cell - 20); line(g, shade(cc, -.12), [gx, gy], [gx + 2, gy - 7], 2); }
+  }
+  for (const [fx, fy] of [[14, 14], [size + 26, 14], [14, size + 26], [size + 26, size + 26]]) flower(g, fx, fy, 9, C.corner);
+  return cv;
+}
+
+// ============================================================== themes
+// Each theme swaps the art (themes/<id>/*), the UI palette and the ambient effect. Colors are [r,g,b].
+const THEME_LIST = ['garden', 'magic', 'japan', 'liminal', 'twilight', 'fantasy', 'ocean', 'wintersun', 'greek', 'youkai', 'deepwood'];
+const THEMES = {
+  garden: {
+    name: 'The Secret Garden', price: 0, fx: 'petals',
+    blurb: 'A hidden flower garden in full spring bloom.',
+    names: NAMES,
+    items: { rewind: 'Choco Rewind', hammer: 'Candy Hammer', blueprint: 'Gnome Blueprint' },
+    tiers: ['#e6f6cf', '#fde0e6', '#ffe6bf', '#ffd5d0', '#fff0b0', '#d4ebff', '#efdcc6', '#fbd2ea', '#cdf2ee', '#e4d9ff', '#d4f5d4', '#ffe27a'],
+    c: {
+      accent: [255, 128, 160], accentDark: [214, 92, 130], good: [120, 200, 100], gold: [255, 200, 70], blue: [110, 170, 240],
+      cream: [255, 236, 196], panel: [255, 249, 236], panelAlt: [255, 243, 214], ink: [120, 76, 50], inkSoft: [150, 110, 80],
+      seal: [214, 70, 90], titleOl: [122, 70, 52], titleShadow: [255, 182, 206], sky: [[190, 232, 255], [214, 240, 200]],
+      frame: [196, 140, 92], frameTop: [222, 168, 116], inner: [150, 102, 64], bed: [124, 186, 92],
+      cellA: [156, 212, 120], cellB: [144, 202, 110], cellLow: [110, 168, 82], corner: [255, 150, 190],
+    },
+  },
+  magic: {
+    name: 'The Magic Town', price: 400, fx: 'stars',
+    blurb: 'A wizard town on the map, guided by stars, tarot and old prophecies.',
+    names: ['', 'Candle Stub', 'Tarot Card', 'Crystal Ball', 'Potion Bottle', 'Spell Book', 'Star Map Scroll', 'Brass Telescope',
+      'Fortune Tent', 'Astrolabe', 'Wizard Tower', 'Observatory', 'Constellation Clock Tower'],
+    items: { rewind: 'Hourglass', hammer: 'Star Wand', blueprint: 'Tarot Draw' },
+    tiers: ['#ece6ff', '#e2ddff', '#d9e4ff', '#e8dcf7', '#f4e9c8', '#dcd6f5', '#d2e0f2', '#eadcf0', '#f2e6c4', '#d8d0f0', '#cfdcf0', '#f0d98a'],
+    c: {
+      accent: [158, 132, 222], accentDark: [104, 82, 166], good: [104, 172, 196], gold: [230, 196, 108], blue: [118, 138, 220],
+      cream: [240, 234, 252], panel: [249, 246, 255], panelAlt: [238, 232, 252], ink: [70, 56, 112], inkSoft: [112, 98, 150],
+      seal: [150, 108, 200], titleOl: [64, 50, 112], titleShadow: [196, 176, 246], sky: [[54, 48, 104], [104, 92, 160]],
+      frame: [96, 80, 152], frameTop: [124, 108, 184], inner: [62, 52, 112], bed: [74, 66, 134],
+      cellA: [108, 98, 174], cellB: [96, 88, 160], cellLow: [62, 54, 114], corner: [236, 206, 120],
+    },
+  },
+  japan: {
+    name: 'The Japan Peace', price: 400, fx: 'leaves',
+    blurb: 'A calm Japanese town in autumn, maple leaves falling before winter.',
+    names: ['', 'Fallen Maple Leaf', 'Chestnut Basket', 'Matcha Teacup', 'Paper Lantern', 'Maple Bonsai', 'Stone Lantern', 'Koi Pond',
+      'Wooden Bridge', 'Torii Gate', 'Tea House', 'Five-Story Pagoda', 'Great Autumn Maple'],
+    items: { rewind: 'Wind Chime', hammer: 'Wooden Mallet', blueprint: 'Ink Scroll' },
+    tiers: ['#f8e6cf', '#f1e2c4', '#e3ecd0', '#fbe1c8', '#f3dcc0', '#e6e2d2', '#d8e8e0', '#efdcc4', '#f4d8c4', '#eadfc8', '#e2dccc', '#f6d58e'],
+    c: {
+      accent: [226, 146, 88], accentDark: [170, 100, 58], good: [134, 166, 96], gold: [226, 178, 88], blue: [116, 156, 176],
+      cream: [250, 236, 210], panel: [255, 249, 238], panelAlt: [246, 236, 214], ink: [98, 68, 46], inkSoft: [138, 108, 78],
+      seal: [196, 118, 76], titleOl: [104, 66, 42], titleShadow: [244, 196, 150], sky: [[246, 222, 186], [226, 212, 176]],
+      frame: [150, 104, 70], frameTop: [180, 132, 92], inner: [110, 76, 50], bed: [204, 190, 150],
+      cellA: [232, 222, 192], cellB: [222, 210, 178], cellLow: [186, 172, 136], corner: [226, 146, 88],
+    },
+  },
+  liminal: {
+    name: 'The Liminal Anomalies', price: 600, fx: 'glitch',
+    blurb: 'A place you were never meant to find. The lights hum, and something watches from the static.',
+    names: ['', 'Flickering Bulb', 'Old Cassette', 'Rotary Phone', 'Empty Swing', 'Dim Vending Machine', 'Exit to Nowhere',
+      'Empty Pool Ladder', 'Static CRT TV', 'Hallway Door', 'Silent Mall Fountain', 'Security Monitor', 'Glitched TV Monolith'],
+    items: { rewind: 'Rewind Tape', hammer: 'Static Brick', blueprint: 'Floor Plan' },
+    tiers: ['#6a6a52', '#5e6656', '#646a5c', '#6e6650', '#5c625a', '#62665e', '#585e5a', '#6a6454', '#60625a', '#5a6058', '#666656', '#8a7e48'],
+    c: {
+      accent: [150, 160, 110], accentDark: [96, 104, 64], good: [104, 128, 98], gold: [186, 166, 88], blue: [88, 108, 118],
+      cream: [70, 70, 58], panel: [40, 42, 36], panelAlt: [52, 54, 46], ink: [214, 208, 170], inkSoft: [160, 156, 128],
+      seal: [170, 150, 80], titleOl: [20, 20, 16], titleShadow: [120, 120, 80], sky: [[30, 30, 24], [60, 58, 40]],
+      frame: [70, 68, 54], frameTop: [90, 88, 70], inner: [36, 36, 28], bed: [58, 60, 50],
+      cellA: [84, 86, 70], cellB: [76, 78, 64], cellLow: [44, 46, 38], corner: [150, 160, 110],
+    },
+  },
+  twilight: {
+    name: 'Enchanted Twilight Forest', price: 1500, fx: 'snow',
+    blurb: 'A magic forest of the far north under the aurora, home to a mysterious tribe of the woods and the lake.',
+    names: ['', 'Glowing Moss Sprout', 'Aurora Feather Charm', 'Firefly Jar', 'Tribal Drum', 'Spirit Totem', 'Frosted Canoe',
+      'Fur Tent Hut', 'Moonstone Altar', 'Aurora Lake Spring', 'White Stag Statue', 'Treehouse Village', 'Great Aurora Tree'],
+    items: { rewind: 'Snowflake Watch', hammer: 'Carved Mallet', blueprint: 'Birch Bark Map' },
+    tiers: ['#dff4f0', '#e4e6fb', '#e8f6dc', '#e2eef8', '#ece2f6', '#dcf0f4', '#eae4dc', '#e0e4f6', '#d6f2ec', '#f0eef6', '#e2ecdc', '#d8f4e2'],
+    c: {
+      accent: [86, 178, 178], accentDark: [46, 120, 130], good: [108, 186, 148], gold: [222, 200, 120], blue: [118, 140, 214],
+      cream: [230, 244, 244], panel: [246, 252, 252], panelAlt: [228, 242, 244], ink: [38, 70, 86], inkSoft: [84, 116, 130],
+      seal: [132, 104, 196], titleOl: [30, 54, 76], titleShadow: [158, 218, 216], sky: [[30, 46, 84], [58, 108, 118]],
+      frame: [70, 98, 118], frameTop: [96, 128, 148], inner: [40, 60, 78], bed: [206, 226, 234],
+      cellA: [226, 240, 244], cellB: [212, 228, 236], cellLow: [168, 192, 204], corner: [168, 228, 208],
+    },
+  },
+  fantasy: {
+    name: 'Fantasy Adventure', price: 2000, fx: 'sparkle',
+    blurb: 'Grab your great sword and spell book: the dragon guarding the eternal heart is waiting.',
+    names: ['', 'Coin Pouch', 'Blue Potion', 'Wooden Shield', 'Spell Book', 'Cute Slime', 'Great Sword', 'Treasure Chest',
+      "Adventurer's Camp", 'Dragon Egg', 'Wizard Tower', 'Royal Castle', 'Eternal Dragon Heart'],
+    items: { rewind: 'Return Scroll', hammer: 'War Hammer', blueprint: 'Treasure Map' },
+    tiers: ['#fbecc8', '#d8e8fb', '#efe2cc', '#d8f0e0', '#d4f2ee', '#e6eaf2', '#fbe6bc', '#e8eed4', '#f6ead0', '#dce4fa', '#e4ecf8', '#fbe08a'],
+    c: {
+      accent: [84, 148, 224], accentDark: [50, 98, 168], good: [94, 178, 118], gold: [234, 188, 78], blue: [96, 138, 218],
+      cream: [252, 240, 210], panel: [255, 251, 240], panelAlt: [248, 240, 218], ink: [76, 60, 46], inkSoft: [118, 102, 82],
+      seal: [196, 146, 48], titleOl: [58, 60, 108], titleShadow: [248, 212, 128], sky: [[150, 200, 250], [200, 230, 190]],
+      frame: [140, 110, 80], frameTop: [170, 140, 100], inner: [100, 76, 54], bed: [120, 170, 100],
+      cellA: [170, 210, 140], cellB: [156, 198, 126], cellLow: [112, 158, 90], corner: [234, 188, 78],
+    },
+  },
+  ocean: {
+    name: 'Blue Ocean n Lost Kingdom', price: 2500, fx: 'bubbles',
+    blurb: 'Bright sand and a sparkling sea. Dive deeper and a lost kingdom keeps its ruins and its secrets.',
+    names: ['', 'Seashell', 'Starfish', 'Sand Castle', 'Message in a Bottle', 'Pearl Oyster', 'Little Lighthouse', 'Coral Reef',
+      'Sunken Ship', 'Ruined Pillars', 'Golden Trident', 'Sunken Temple', 'Lost Kingdom Palace'],
+    items: { rewind: 'Conch Shell', hammer: 'Anchor', blueprint: 'Sea Chart' },
+    tiers: ['#fbeedc', '#fde6dc', '#f6ecd0', '#dcf2f4', '#eef0f6', '#e0ecfa', '#fbe2dc', '#e6e0d2', '#dce8f0', '#fbe8b8', '#d6e6f4', '#d0f0f4'],
+    c: {
+      accent: [40, 168, 190], accentDark: [24, 108, 140], good: [78, 188, 168], gold: [238, 198, 108], blue: [58, 118, 198],
+      cream: [250, 240, 220], panel: [252, 250, 244], panelAlt: [236, 244, 244], ink: [30, 62, 94], inkSoft: [78, 108, 134],
+      seal: [38, 138, 178], titleOl: [20, 52, 90], titleShadow: [150, 218, 228], sky: [[140, 214, 240], [240, 226, 190]],
+      frame: [188, 158, 118], frameTop: [212, 184, 144], inner: [138, 110, 78], bed: [228, 212, 168],
+      cellA: [240, 228, 196], cellB: [232, 218, 182], cellLow: [196, 178, 136], corner: [80, 188, 208],
+    },
+  },
+  // ---- premium themes: painted sprite particles, bloom, light rays and their own difficulty (diff)
+  // diff.spawn: next-decoration odds; mul: score multiplier; rewind: rewinds in a row;
+  // lock: a blocked tile that appears every `every` plants (up to `max`), takes `hp` adjacent merges or one Hammer to break.
+  // vfx.sprites: themes/<id>/fx_<n>.png. mode fall/rise drifts across the screen, float/twinkle fades in place; add = additive glow.
+  wintersun: {
+    name: 'Winter Sun', price: 600000, fx: 'sprites',
+    blurb: 'After the long blizzard the sky opens again. The winter sun shines like a promise of spring.',
+    names: ['', 'Pine Cone', 'Snowdrop', 'Knit Scarf', 'Snow Hare', 'Icicle Lantern', 'Hot Cocoa', 'Snowy Fox', 'Pine Cabin',
+      'Sun Crystal', 'Snowy Owl', 'Winter Spirit Deer', 'First Ray of Spring'],
+    items: { rewind: 'Frost Watch', hammer: 'Ice Pick', blueprint: 'Trail Map' },
+    tiers: ['#f4ecdf', '#eef6f4', '#fbe0dc', '#f2f2f6', '#e2eefa', '#f2e4d6', '#fbe4d0', '#f0e6d8', '#fdf0c0', '#eef0f6', '#e8f2f8', '#ffe6a0'],
+    diff: { stars: 2, spawn: [[1, 62], [2, 30], [3, 8]], mul: 1.2, rewind: 4, lock: { name: 'Ice Block', hp: 1, every: 9, max: 2 } },
+    vfx: {
+      bloom: .32, rays: { c: [255, 226, 160], n: 5, x: .85, a: .16 },
+      sprites: [{ mode: 'fall', n: 22, size: [16, 30], speed: [16, 36], sway: 26, spin: 1 },
+        { mode: 'twinkle', n: 9, size: [18, 36], add: true, glow: [255, 220, 150] },
+        { mode: 'fall', n: 16, size: [8, 16], speed: [12, 24], sway: 14 }],
+    },
+    c: {
+      accent: [240, 170, 80], accentDark: [196, 120, 48], good: [110, 180, 170], gold: [244, 196, 92], blue: [120, 170, 220],
+      cream: [246, 248, 252], panel: [255, 255, 255], panelAlt: [238, 244, 250], ink: [56, 74, 100], inkSoft: [104, 122, 146],
+      seal: [220, 96, 80], titleOl: [70, 88, 120], titleShadow: [255, 214, 150], sky: [[200, 224, 246], [255, 240, 214]],
+      frame: [150, 170, 196], frameTop: [184, 202, 224], inner: [104, 124, 152], bed: [232, 240, 248],
+      cellA: [246, 250, 255], cellB: [232, 240, 250], cellLow: [190, 206, 224], corner: [240, 170, 80],
+    },
+  },
+  greek: {
+    name: 'Greek Mythology', price: 900000, fx: 'sprites',
+    blurb: 'A marble sanctuary of the gods. Statues keep watch, and Medusa turns careless tiles to stone.',
+    names: ['', 'Olive Sprig', 'Laurel Wreath', 'Amphora', 'Golden Lyre', 'Marble Column', 'Owl of Athena', 'Pegasus Statue',
+      'Sacred Flame', 'Zeus Thunderbolt', 'Parthenon Shrine', 'Goddess Statue', 'Temple of Olympus'],
+    items: { rewind: 'Hourglass of Chronos', hammer: 'Titan Hammer', blueprint: 'Oracle Scroll' },
+    tiers: ['#eef0d8', '#f8ecc4', '#f4dcc8', '#fbeab8', '#f4f2ec', '#ece6da', '#eef2f6', '#fde2c0', '#fff0b4', '#f2ece0', '#f6f0e8', '#ffe08a'],
+    diff: { stars: 3, spawn: [[1, 55], [2, 30], [3, 15]], mul: 1.5, rewind: 3, lock: { name: 'Medusa Stone', hp: 1, every: 7, max: 3 } },
+    vfx: {
+      bloom: .26, rays: { c: [255, 232, 170], n: 4, x: .12, a: .15 },
+      sprites: [{ mode: 'fall', n: 10, size: [22, 38], speed: [10, 22], sway: 34, spin: .7 },
+        { mode: 'fall', n: 12, size: [16, 26], speed: [16, 30], sway: 22, spin: 1.4 },
+        { mode: 'rise', n: 16, size: [10, 22], speed: [8, 20], sway: 10, add: true, glow: [255, 220, 140] }],
+    },
+    c: {
+      accent: [196, 150, 70], accentDark: [150, 108, 44], good: [130, 170, 100], gold: [230, 186, 80], blue: [92, 140, 196],
+      cream: [250, 242, 224], panel: [255, 252, 244], panelAlt: [246, 238, 218], ink: [92, 72, 48], inkSoft: [134, 112, 84],
+      seal: [176, 120, 50], titleOl: [96, 72, 40], titleShadow: [250, 226, 160], sky: [[214, 232, 246], [250, 238, 212]],
+      frame: [214, 198, 168], frameTop: [234, 222, 196], inner: [168, 148, 112], bed: [240, 232, 214],
+      cellA: [250, 246, 236], cellB: [240, 234, 220], cellLow: [204, 192, 166], corner: [230, 186, 80],
+    },
+  },
+  youkai: {
+    name: 'Youkai Village', price: 1400000, fx: 'sprites',
+    blurb: 'A village of yokai legends with no way out. Paper seals bind the tiles; break them before the night ends.',
+    names: ['', 'Paper Charm', 'Kitsune Mask', 'Red Lantern', 'Karakasa Umbrella', 'Jizo Statue', 'Tanuki Teapot', 'Hitodama Lantern',
+      'Red Torii', 'Nine-Tailed Fox', 'Haunted Teahouse', 'Night Parade', 'Endless Torii Path'],
+    items: { rewind: 'Spirit Bell', hammer: 'Shakujo Staff', blueprint: 'Omikuji Slip' },
+    tiers: ['#f0dcc8', '#f4e2d8', '#f6d2c0', '#ecd6d6', '#e2dcd4', '#ecd8c4', '#d8dcf0', '#f2c8c0', '#f0e2d0', '#e8d0c4', '#e0d0dc', '#f6d080'],
+    diff: { stars: 4, spawn: [[1, 48], [2, 30], [3, 17], [4, 5]], mul: 2, rewind: 2, lock: { name: 'Sealed Box', hp: 2, every: 5, max: 3 } },
+    vfx: {
+      bloom: .42, haze: [200, 40, 50, .28], dark: true,
+      sprites: [{ mode: 'float', n: 7, size: [26, 44], speed: [6, 14], add: true, glow: [120, 140, 255], life: [5, 9] },
+        { mode: 'fall', n: 14, size: [16, 28], speed: [18, 34], sway: 30, spin: 1.3 },
+        { mode: 'rise', n: 18, size: [8, 16], speed: [16, 34], sway: 18, add: true, glow: [255, 140, 60] }],
+    },
+    c: {
+      accent: [214, 60, 60], accentDark: [150, 30, 40], good: [200, 120, 70], gold: [236, 176, 80], blue: [110, 110, 190],
+      cream: [70, 30, 34], panel: [44, 22, 26], panelAlt: [60, 28, 32], ink: [250, 226, 200], inkSoft: [210, 170, 150],
+      seal: [230, 80, 70], titleOl: [40, 10, 14], titleShadow: [200, 50, 60], sky: [[30, 10, 16], [90, 24, 30]],
+      frame: [110, 34, 36], frameTop: [140, 46, 46], inner: [56, 16, 20], bed: [70, 30, 32],
+      cellA: [96, 44, 44], cellB: [86, 38, 40], cellLow: [52, 20, 24], corner: [236, 176, 80],
+    },
+  },
+  deepwood: {
+    name: 'Underwater Rain Forest', price: 2000000, fx: 'sprites',
+    blurb: 'A great city after the end, drowned and overgrown. Fish drift through the forest, and the vines never stop.',
+    names: ['', 'Glow Moss', 'Water Fern', 'Rusted Sign', 'Coral Streetlamp', 'Sunken Taxi', 'Jellyfish Lantern', 'Overgrown Bus',
+      'Ruined Billboard', 'Whale Skeleton', 'Drowned Skyscraper', 'Forest Turtle', 'Heart of the Drowned City'],
+    items: { rewind: 'Air Bubble', hammer: 'Rusty Wrench', blueprint: 'Sonar Map' },
+    tiers: ['#cfeee6', '#d6f2dc', '#d8e2e6', '#d0e8f2', '#e8e6c8', '#d6e0f6', '#d4ecd8', '#e0e4e8', '#e6ece6', '#d0dcec', '#d8eadc', '#a8f0e0'],
+    diff: { stars: 5, spawn: [[1, 42], [2, 30], [3, 20], [4, 8]], mul: 2.5, rewind: 2, lock: { name: 'Tangled Vines', hp: 2, every: 4, max: 4 } },
+    vfx: {
+      bloom: .5, rays: { c: [140, 240, 220], n: 6, x: .5, a: .12, sway: true }, haze: [20, 120, 130, .3], dark: true,
+      sprites: [{ mode: 'float', n: 16, size: [10, 22], speed: [4, 12], add: true, glow: [80, 255, 220], life: [4, 8] },
+        { mode: 'rise', n: 5, size: [30, 52], speed: [8, 16], sway: 16, add: true, glow: [90, 220, 255] },
+        { mode: 'rise', n: 16, size: [8, 20], speed: [26, 50], sway: 12 }],
+    },
+    c: {
+      accent: [60, 200, 180], accentDark: [24, 130, 130], good: [90, 200, 130], gold: [220, 210, 120], blue: [70, 140, 220],
+      cream: [24, 52, 70], panel: [14, 34, 48], panelAlt: [20, 46, 62], ink: [210, 246, 236], inkSoft: [150, 200, 196],
+      seal: [80, 220, 200], titleOl: [6, 20, 32], titleShadow: [40, 160, 150], sky: [[6, 24, 48], [16, 70, 80]],
+      frame: [30, 74, 84], frameTop: [44, 96, 104], inner: [10, 34, 44], bed: [20, 56, 64],
+      cellA: [34, 84, 92], cellB: [28, 74, 84], cellLow: [12, 40, 50], corner: [90, 230, 200],
+    },
+  },
+};
+let TH = THEMES.garden, C = TH.c, STYLES = {};
+const IMG = {};
+const THEME_FILES = ['mascot.png', 'item_rewind.png', 'item_hammer.png', 'item_blueprint.png',
+  'menu_land.jpg', 'menu_port.jpg', 'game_land.jpg', 'game_port.jpg', ...Array.from({ length: 12 }, (_, i) => `block_${i + 1}.png`)];
+
+function loadImg(key, src, onload) {
+  if (IMG[key]) return;
+  const im = new Image();
+  im.onload = () => { im.ok = true; if (onload) onload(); };
+  im.src = src; IMG[key] = im;
+}
+const VFX_FILES = ['lock.png', 'lock_hit.png', 'fx_1.png', 'fx_2.png', 'fx_3.png'];
+function loadTheme(id) {
+  for (const f of THEMES[id].vfx ? [...THEME_FILES, ...VFX_FILES] : THEME_FILES) loadImg(`${id}/${f.split('.')[0]}`, `themes/${id}/${f}`, () => { if (TH.id === id) app.invalidate(); });
+}
+function themeImg(name, id = TH.id) { const im = IMG[`${id}/${name}`]; return im && im.ok ? im : null; }
+function applyTheme(id) {
+  TH = THEMES[id] || THEMES.garden; TH.id = THEMES[id] ? id : 'garden'; C = TH.c;
+  C.tiers = [null, ...TH.tiers.map(hex)];
+  STYLES = {
+    pink: [C.accent, [255, 255, 255]], green: [C.good, [255, 255, 255]], cream: [C.cream, C.ink],
+    blue: [C.blue, [255, 255, 255]], gold: [C.gold, [255, 255, 255]], gray: [[190, 186, 182], [244, 244, 244]],
+  };
+  loadTheme(TH.id);
+}
+for (const id of THEME_LIST) THEMES[id].id = id;
+applyTheme('garden');
+
+// ============================================================== rules
+const MAX_LEVEL = 12;
+const POINTS = [0, 10, 30, 80, 200, 450, 1000, 2200, 4800, 10000, 22000, 48000, 100000];
+const SEALS = [0, 0, 1, 2, 3, 5, 8, 12, 18, 26, 36, 50, 70];
+const COLLECT = [0, 0, 0, 0, 2, 3, 4, 5, 6, 8, 10, 12, 20];
+const SPAWN = [[1, 60], [2, 30], [3, 10]];
+const REWIND_STREAK = 3;
+// the current theme's difficulty (classic themes use the base rules)
+const BASE_DIFF = { stars: 1, spawn: SPAWN, mul: 1, rewind: REWIND_STREAK, lock: null };
+const D = () => TH.diff || BASE_DIFF;
+const MILESTONES = [
+  [1000, { rewind: 1 }], [3000, { blueprint: 1 }], [6000, { hammer: 1 }], [10000, { rewind: 1, blueprint: 1 }],
+  [20000, { hammer: 1 }], [35000, { blueprint: 2 }], [50000, { hammer: 1, rewind: 1 }], [75000, { hammer: 2 }],
+  [100000, { blueprint: 2, rewind: 1 }], [150000, { hammer: 2 }], [200000, { hammer: 2, blueprint: 2 }], [300000, { hammer: 3, rewind: 3, blueprint: 3 }],
+];
+const ITEMS = ['rewind', 'hammer', 'blueprint'];
+const ITEM_SHORT = { rewind: 'Rewind', hammer: 'Hammer', blueprint: 'Blueprint' };
+const ITEM_DESC = { rewind: 'Undo your last move (up to 3 in a row).', hammer: 'Smash one decoration to free a tile.', blueprint: 'Choose exactly where the next one goes.' };
+const PRICES = { rewind: 3, hammer: 4, blueprint: 3 };
+// Points pay for themes: 1 per 100 score plus 5 per level of the best decoration.
+const pointsFor = run => Math.floor(run.score / 100) + run.highest * 5;
+const TIP_DEFAULT = 'Drag a decoration onto a matching neighbor!';
+
+// ============================================================== achievements
+// Every achievement is "a number reaches a goal". The numbers are profile fields or counters in profile.stats;
+// counters only ever grow, so two devices' stats merge by taking the larger value.
+const TIER_REWARD = [null, { seals: 2 }, { seals: 5 }, { seals: 10, points: 20 }, { seals: 25, points: 60 }];
+const ACH = [];
+{
+  const st = k => p => p.stats[k] || 0;
+  const add = (id, name, desc, tier, goal, val) => ACH.push({ id, name, desc, tier, goal, val });
+  const series = (key, val, list, desc) => list.forEach(([goal, name, tier], i) => add(`${key}${i + 1}`, name, desc(goal), tier, goal, val));
+  series('merge', st('merges'), [[1, 'First Bloom', 1], [10, 'Green Thumb', 1], [50, 'Busy Bee', 1], [100, 'Hundred Hands', 2],
+    [500, 'Garden Hustle', 2], [1000, 'Thousand Merges', 3], [5000, 'Merge Maestro', 3], [10000, 'Merge Legend', 4]], n => `Merge ${fmt(n)} time${n > 1 ? 's' : ''}`);
+  series('plant', st('plants'), [[10, 'Seed Sower', 1], [100, 'Planter', 1], [500, 'Sprout Spreader', 2], [1000, 'Thousand Seeds', 2],
+    [5000, 'Seed Storm', 3], [10000, 'Endless Spring', 4]], n => `Plant ${fmt(n)} decorations`);
+  [['Little Garden', 1], ['Blooming', 1], ['Rising Star', 2], ['Grand Design', 2], ['Masterpiece', 3], ['Wonder', 3],
+    ['Marvel', 4], ['Near Perfection', 4], ['Crown Jewel', 4]].forEach(([name, tier], i) =>
+    add(`lv${i + 4}`, name, `Create a Lv.${i + 4} decoration`, tier, 1, p => p.collection.has(i + 4) ? 1 : 0));
+  [[6, 10, 'Mass Production', 2], [7, 10, 'Factory Garden', 2], [8, 5, 'Collector', 3], [9, 3, 'Serial Wonder', 3],
+    [10, 3, 'Marvel Maker', 4], [11, 2, 'Twin Peaks', 4]].forEach(([lv, n, name, tier]) =>
+    add(`made${lv}`, name, `Create Lv.${lv} ${n} times`, tier, n, st('made' + lv)));
+  series('score', p => Math.max(p.best_score, p.stats.maxScore || 0), [[1000, 'Getting Started', 1], [2500, 'Quarter Way', 1],
+    [5000, 'Five Grand', 1], [10000, 'Ten Thousand', 2], [20000, 'Twenty Grand', 2], [35000, 'High Roller', 3], [50000, 'Fifty Grand', 3],
+    [100000, 'Six Figures', 4], [150000, 'Superstar', 4], [250000, 'Hall of Fame', 4]], n => `Score ${fmt(n)} in one garden`);
+  series('total', st('totalScore'), [[10000, 'Savings', 1], [50000, 'Nest Egg', 2], [250000, 'Fortune', 2], [500000, 'Half Million', 3],
+    [1000000, 'Millionaire', 4], [5000000, 'Tycoon', 4]], n => `Score ${fmt(n)} in total`);
+  series('games', p => p.games, [[1, 'First Harvest', 1], [5, 'Regular', 1], [10, 'Dedicated', 2], [25, 'Veteran', 2],
+    [50, 'Devoted', 3], [100, 'Centurion', 4]], n => `Finish ${n} garden${n > 1 ? 's' : ''}`);
+  series('goal', st('maxMilestone'), [[1, 'First Goal', 1], [3, 'Goal Getter', 2], [5, 'Halfway There', 2], [8, 'Goal Crusher', 3],
+    [MILESTONES.length, 'All Goals', 4]], n => `Reach ${n} score goal${n > 1 ? 's' : ''} in one garden`);
+  for (const [it, names] of [['rewind', ['Second Chance', 'Time Bender', 'Master of Time']], ['hammer', ['Smash!', 'Demolition Crew', 'Wrecking Ball']],
+    ['blueprint', ['Planner', 'Architect', 'Master Planner']]])
+    series(it, st(it), [[1, names[0], 1], [25, names[1], 2], [100, names[2], 3]], n => `Use ${ITEM_SHORT[it]} ${n} time${n > 1 ? 's' : ''}`);
+  series('buy', st('bought'), [[1, 'First Purchase', 1], [10, 'Good Customer', 2], [50, 'VIP Shopper', 3]], n => `Buy ${n} item${n > 1 ? 's' : ''} in the Shop`);
+  series('sealsin', st('sealsEarned'), [[100, 'Seal Saver', 1], [500, 'Seal Hoard', 2], [2500, 'Seal Vault', 3]], n => `Earn ${fmt(n)} seals`);
+  add('sealsout', 'Big Spender', 'Spend 500 seals', 3, 500, st('sealsSpent'));
+  series('pts', st('pointsEarned'), [[100, 'Pocket Change', 1], [1000, 'Point Collector', 2], [5000, 'Point Hoarder', 3], [20000, 'Point Magnate', 4]],
+    n => `Earn ${fmt(n)} points`);
+  add('theme2', 'New Look', 'Unlock a new theme', 2, 2, p => p.themes.size);
+  add('theme4', 'Theme Collector', 'Unlock every theme', 4, THEME_LIST.length, p => p.themes.size);
+  series('lock', st('locksBroken'), [[1, 'Lockbreaker', 1], [25, 'Seal Breaker', 2], [100, 'Unchained', 3]], n => `Break ${n} blocked tile${n > 1 ? 's' : ''}`);
+  [['Garden Keeper', 'Town Wizard', 'Autumn Wanderer', 'Lost in the Static', 'Aurora Wanderer', 'Brave Adventurer', 'Beachcomber',
+    'Sunlit Traveler', 'Oracle of Olympus', 'Yokai Wanderer', 'Lonely Diver'],
+    ['Garden Devotee', 'Archmage', 'Zen Master', 'Never Leaving', 'Spirit of the North', 'Dragon Slayer', 'Lord of the Deep',
+    'Herald of Spring', 'Favored by the Gods', 'Lord of the Night Parade', 'Heart of the Drowned City']]
+    .forEach((names, k) => THEME_LIST.forEach((id, i) => add(`${id}${k ? 10 : 1}`, names[i],
+      `Finish ${k ? '10 gardens' : 'a garden'} in ${THEMES[id].name}`, k ? 3 : (THEMES[id].price >= 600 ? 2 : 1), k ? 10 : 1, st('games_' + id))));
+  [['clean', 'Clean Hands', 'Finish with 5,000+ score using no items', 3, 5000, 'cleanFinish'],
+    ['norewind', 'No Turning Back', 'Create Lv.8 without Rewind', 3, 8, 'noRewindLv'],
+    ['nohammer', 'Gentle Gardener', 'Score 20,000 without Hammer', 3, 20000, 'noHammerScore'],
+    ['noblue', 'Freestyle', 'Score 10,000 without Blueprint', 2, 10000, 'noBlueprintScore'],
+    ['pure', 'Purist', 'Create Lv.10 using no items', 4, 10, 'noItemLv'],
+    ['rewindchain', 'Triple Rewind', 'Rewind 3 times in a row', 1, 1, 'rewind3'],
+    ['bigsmash', 'Big Smash', 'Smash a Lv.7+ decoration', 2, 1, 'bigSmash'],
+    ['full', 'Full House', 'Fill every tile of the board', 1, 1, 'fullBoard'],
+    ['escape', 'Close Call', 'Use Hammer on a full board', 2, 1, 'escape'],
+    ['fast5', 'Speed Gardener', 'Create Lv.5 within 20 moves', 2, 1, 'fastLv5'],
+    ['slot', 'Bookmark', 'Save a garden to a slot', 1, 1, 'slotSaves'],
+    ['load', 'Time Traveler', 'Load a saved garden', 1, 1, 'loads'],
+    ['code', 'Code Keeper', 'Copy a Save Code', 1, 1, 'codeCopies']].forEach(([id, name, desc, tier, goal, key]) => add(id, name, desc, tier, goal, st(key)));
+  add('slots3', 'Archivist', 'Fill all 3 save slots', 1, 3, () => [1, 2, 3].filter(i => Store.get('slot' + i)).length);
+}
+
+const Ach = {
+  toasts: [],
+  bump(key, n = 1) { const s = app.profile.stats; s[key] = (s[key] || 0) + n; },
+  best(key, v) { const s = app.profile.stats; if (v > (s[key] || 0)) s[key] = v; },
+  // Unlock whatever is newly reached, pay its reward and save the profile (stats changed either way).
+  commit(always = true) {
+    const p = app.profile, before = p.ach.size;
+    for (const a of ACH) {
+      if (p.ach.has(a.id) || a.val(p) < a.goal) continue;
+      p.ach.add(a.id);
+      const r = TIER_REWARD[a.tier];
+      p.seals += r.seals || 0; p.points += r.points || 0;
+      this.toasts.push({ a, t: 0 }); Snd.play('milestone');
+    }
+    if (always || p.ach.size > before) p.save();
+  },
+  // Score-based stats that depend on which items this garden has used.
+  runStats(run) {
+    const u = run.used, any = u.rewind || u.hammer || u.blueprint;
+    this.best('maxScore', run.score); this.best('maxMilestone', run.milestone);
+    if (!u.rewind) this.best('noRewindLv', run.highest);
+    if (!u.hammer) this.best('noHammerScore', run.score);
+    if (!u.blueprint) this.best('noBlueprintScore', run.score);
+    if (!any) this.best('noItemLv', run.highest);
+    if (run.highest >= 5 && run.moves <= 20) this.best('fastLv5', 1);
+    if (!run.empties().length) this.best('fullBoard', 1);
+  },
+  update(dt) { for (const s of this.toasts) s.t += dt; while (this.toasts.length && this.toasts[0].t > 3.4) this.toasts.shift(); },
+  draw(g) {
+    const s = this.toasts[0];
+    if (!s) return;
+    const a = Math.min(1, s.t * 5) * Math.min(1, (3.4 - s.t) * 3), w = Math.min(560, W - 40), h = 74, x = W / 2 - w / 2, y = 14 - 30 * (1 - Math.min(1, s.t * 5));
+    g.globalAlpha = Math.max(0, a);
+    rr(g, OLc, x - 3, y - 3, w + 6, h + 6, 22, 0); rr(g, C.panel, x, y, w, h, 20, 0);
+    g.drawImage(app.icons.trophy, x + 12, y + 9, 56, 56);
+    T(g, 'Achievement unlocked!', x + 80, y + 22, { size: 16, color: C.accentDark, outline: null, align: 'left' });
+    T(g, s.a.name, x + 80, y + 48, { size: fit(g, s.a.name, 24, w - 230, 'ui'), color: C.ink, outline: null, align: 'left' });
+    const r = TIER_REWARD[s.a.tier];
+    T(g, `+${r.seals} seals` + (r.points ? `  +${r.points} pts` : ''), x + w - 16, y + 48, { size: 16, color: C.seal, outline: null, kind: 'body', align: 'right' });
+    g.globalAlpha = 1;
+  },
+};
+
+// ============================================================== saves (this device + account sync)
+const KEYS = ['profile', 'autosave', 'slot1', 'slot2', 'slot3'];
+// Test mode (open the link with #test): every theme unlocked, a Theme button to cycle them,
+// and saves kept apart from the real game on this device, never synced.
+const TEST = location.hash === '#test', PREFIX = TEST ? 'sgtest_' : 'sg_';
+// Two copies of the profile are merged, never replaced wholesale: unlocks are unioned, records take the
+// maximum, and seal/item counts come from whichever copy has seen more saves (rev).
+function mergeProfile(a, b) {
+  const [hi, lo] = (a.rev || 0) > (b.rev || 0) ? [a, b] : [b, a];  // a tie goes to b, the cloud copy
+  return Object.assign({}, hi, {
+    collection: [...new Set([...(a.collection || []), ...(b.collection || [])])].sort((x, y) => x - y),
+    best_score: Math.max(a.best_score || 0, b.best_score || 0),
+    best_level: Math.max(a.best_level || 0, b.best_level || 0),
+    games: Math.max(a.games || 0, b.games || 0),
+    themes: [...new Set(['garden', ...(a.themes || []), ...(b.themes || [])])],
+    ach: [...new Set([...(a.ach || []), ...(b.ach || [])])],
+    stats: Object.fromEntries([...new Set([...Object.keys(a.stats || {}), ...Object.keys(b.stats || {})])]
+      .map(k => [k, Math.max((a.stats || {})[k] || 0, (b.stats || {})[k] || 0)])),
+    rev: Math.max(a.rev || 0, b.rev || 0),
+  });
+}
+
+// Cloud sync: every device pulls on open, whenever it comes back to the foreground, and every 30 s;
+// the profile is re-read and merged right before each write, so a device left open never erases
+// what another device saved in the meantime.
+const ACCESS_TRIED = 'sg_access_tried';
+const Store = {
+  data: {}, db: null, uid: null, cloud: false, settled: false, timers: {}, writing: {}, pending: {},
+  state: TEST ? 'test' : 'local', lastErr: '', lastSync: 0, onSync: null, syncing: false,
+  init() {
+    try { localStorage.setItem(PREFIX + 'probe', '1'); this.localOk = localStorage.getItem(PREFIX + 'probe') === '1'; } catch (e) { this.localOk = false; }
+    for (const k of KEYS) {
+      try { const raw = localStorage.getItem(PREFIX + k); this.data[k] = raw ? JSON.parse(raw) : null; } catch (e) { this.data[k] = null; }
+    }
+    this.loadedT = Object.fromEntries(KEYS.map(k => [k, this.data[k] ? this.data[k].t || 0 : 0]));  // what was on this device at load
+  },
+  get(k) { const e = this.data[k]; return e ? e.v : null; },
+  local(k) { try { localStorage.setItem(PREFIX + k, JSON.stringify(this.data[k])); } catch (e) { /* storage blocked */ } },
+  set(k, v) { this.data[k] = { v: v == null ? null : v, t: Date.now() }; this.local(k); this.queue(k); },
+  queue(k) { if (!this.db) return; clearTimeout(this.timers[k]); this.timers[k] = setTimeout(() => { this.timers[k] = null; this.push(k); }, 400); },
+  async push(k) {
+    if (!this.db) return;
+    if (this.writing[k]) { this.pending[k] = true; return; }
+    this.writing[k] = true;
+    try {
+      if (k === 'profile') {  // merge with whatever another device saved since our last pull
+        const remote = this.parse(await this.ref(k).get()), e = this.data[k];
+        if (remote && remote.v && e && e.v) {
+          const merged = mergeProfile(e.v, remote.v);
+          if (JSON.stringify(merged) !== JSON.stringify(e.v)) { this.data[k] = { v: merged, t: Math.max(e.t || 0, remote.t) }; this.local(k); this.changed(); }
+        }
+      }
+      const e = this.data[k];
+      if (e) await this.ref(k).set({ t: e.t, json: JSON.stringify(e.v) });
+      this.state = 'cloud'; this.lastSync = Date.now();
+    } catch (err) { this.state = 'error'; this.lastErr = 'save ' + ((err && (err.code || err.message)) || err); console.warn('cloud save failed', k, err); }
+    this.writing[k] = false;
+    if (this.pending[k]) { this.pending[k] = false; this.push(k); }
+  },
+  ref(k) { return this.db.doc(`data/users/${this.uid}/${k}`); },
+  parse(snap) {
+    if (!snap || !snap.exists) return null;
+    try { const d = snap.data(); return { v: JSON.parse(d.json), t: d.t || 0 }; } catch (e) { return null; }
+  },
+  changed() { if (this.onSync) this.onSync(true); },
+  needsAccess() { return this.settled && !TEST && (this.state === 'signedout' || this.state === 'nohost' || this.state === 'error' || !this.localOk); },
+  // Called from a tap: Safari only shows its storage/cookie prompt during a user gesture, so the request
+  // starts before any await. Then claude.ai's own permission dialog, then a reload to reconnect.
+  async askAccess() {
+    let sa = null;
+    try { if (document.requestStorageAccess) sa = document.requestStorageAccess(); } catch (e) { /* not supported */ }
+    try { await sa; } catch (e) { console.warn('storage access declined', e); }
+    try {
+      const perm = window.claude && window.claude.use ? await window.claude.use('permissions') : null;
+      if (perm) {
+        const s = await perm.request(['db', 'user']);
+        if (Object.values(s).includes('denied')) await perm.manage().catch(() => {});
+      }
+    } catch (e) { console.warn('permission request failed', e); }
+    window.name = ACCESS_TRIED;  // survives the reload without any storage, so the next load doesn't ask again
+    location.reload();
+  },
+  flush() { for (const k of KEYS) if (this.timers[k]) { clearTimeout(this.timers[k]); this.timers[k] = null; this.push(k); } },
+  async connect(onSync) {
+    this.onSync = onSync;
+    try {
+      if (TEST) return;
+      if (!window.claude || !window.claude.use) { this.state = 'nohost'; return; }
+      const [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
+      // db served but no identity: signed in with an account that may only view this artifact (not its owner's)
+      if (db && !user) { this.state = 'viewonly'; this.lastErr = 'no user'; return; }
+      if (!db || !user) { this.state = 'signedout'; this.lastErr = 'no db'; return; }
+      const uid = await user.id();
+      if (!uid) { this.state = 'viewonly'; this.lastErr = 'no user id'; return; }
+      this.db = db; this.uid = uid; this.cloud = true;
+      await this.pull();
+      setInterval(() => { if (!document.hidden) this.pull(); }, 30000);
+    } catch (e) { this.state = 'error'; this.lastErr = 'connect ' + ((e && (e.code || e.message)) || e); console.warn('cloud connect failed', e); }
+    finally { this.settled = true; }
+  },
+  // Bring this device up to date: newer autosave/slots win, the profile is merged both ways.
+  async pull() {
+    if (!this.db || this.syncing) return;
+    this.syncing = true;
+    try {
+      const snaps = await Promise.all(KEYS.map(k => this.ref(k).get()));
+      let changed = false;
+      KEYS.forEach((k, i) => {
+        if (this.timers[k] || this.writing[k]) return;  // a local write is on its way; it wins
+        const remote = this.parse(snaps[i]), local = this.data[k];
+        if (k === 'profile' && remote && remote.v && local && local.v) {
+          const merged = mergeProfile(local.v, remote.v);
+          if (JSON.stringify(merged) !== JSON.stringify(local.v)) { changed = true; this.data[k] = { v: merged, t: Math.max(local.t || 0, remote.t) }; this.local(k); }
+          if (JSON.stringify(merged) !== JSON.stringify(remote.v)) this.push(k);
+        } else if (remote && (!local || remote.t > (local.t || 0))) {
+          this.data[k] = remote; this.local(k); changed = true;
+        } else if (local && (!remote || (local.t || 0) > remote.t)) this.push(k);
+      });
+      this.state = 'cloud'; this.lastSync = Date.now();
+      if (changed && this.onSync) this.onSync(true);
+    } catch (e) { this.state = 'error'; this.lastErr = 'sync ' + ((e && (e.code || e.message)) || e); console.warn('cloud sync failed', e); }
+    this.syncing = false;
+  },
+};
+
+// Save Code: the whole save as copyable text, for devices whose browser blocks cloud saves (e.g. iPhone Safari).
+// Rewind history is left out to keep the code short.
+const SaveCode = {
+  open: false,
+  el: id => document.getElementById(id),
+  encode() {
+    const run = d => d && Object.assign({}, d, { history: [] });
+    const data = { v: 1, p: Store.get('profile'), a: run(Store.get('autosave')),
+      s: [1, 2, 3].map(i => { const s = Store.get('slot' + i); return s ? Object.assign({}, s, { run: run(s.run) }) : null; }) };
+    return 'SG1-' + btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+  },
+  decode(text) {
+    const m = String(text).replace(/\s+/g, '').match(/^SG1-([A-Za-z0-9+/=]+)$/);
+    if (!m) return null;
+    try { const d = JSON.parse(decodeURIComponent(escape(atob(m[1])))); return d && d.v === 1 ? d : null; } catch (e) { return null; }
+  },
+  show() {
+    this.open = true;
+    this.el('codetext').value = this.encode(); this.el('codemsg').textContent = '';
+    this.el('codebox').hidden = false;
+  },
+  hide() { this.open = false; this.el('codebox').hidden = true; app.cv.focus({ preventScroll: true }); },
+  msg(t) { this.el('codemsg').textContent = t; },
+  async copy() {
+    Ach.bump('codeCopies'); Ach.commit();
+    const ta = this.el('codetext'); ta.value = this.encode();
+    try { await navigator.clipboard.writeText(ta.value); this.msg('Copied! Paste it on your other device.'); return; } catch (e) { /* blocked in this frame */ }
+    ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+    try { if (document.execCommand('copy')) { this.msg('Copied! Paste it on your other device.'); return; } } catch (e) { /* fall through */ }
+    this.msg('Code selected — long-press it and choose Copy.');
+  },
+  load() {
+    const d = this.decode(this.el('codetext').value);
+    if (!d) { this.msg('That code doesn\'t look right. Paste the whole code starting with SG1-'); return; }
+    if (d.p) {
+      const cur = Store.get('profile') || {};
+      // the pasted progress wins for counts (seals, items, points); unlocks and records are combined
+      Store.set('profile', mergeProfile(cur, Object.assign({}, d.p, { rev: Math.max(cur.rev || 0, d.p.rev || 0) + 1 })));
+    }
+    if (d.a) Store.set('autosave', d.a);
+    (d.s || []).forEach((s, i) => { if (s) Store.set('slot' + (i + 1), s); });
+    Store.changed();
+    this.msg('Loaded! Your progress is on this device now.');
+    setTimeout(() => this.hide(), 1200);
+  },
+  bind() {
+    this.el('codecopy').onclick = () => this.copy();
+    this.el('codeload').onclick = () => this.load();
+    this.el('codeclose').onclick = () => this.hide();
+    this.el('codetext').addEventListener('focus', () => { if (this.el('codetext').value.startsWith('SG1-')) this.el('codetext').select(); });
+  },
+};
+
+class Profile {
+  constructor() {
+    const d = Store.get('profile') || {};
+    this.seals = d.seals || 0;
+    this.items = Object.assign({ rewind: 3, hammer: 3, blueprint: 3 }, d.items || {});
+    this.collection = new Set(d.collection || []);
+    this.best_score = d.best_score || 0; this.best_level = d.best_level || 0; this.games = d.games || 0;
+    this.sound = d.sound !== false;
+    this.rev = d.rev || 0;
+    this.points = d.points || 0;
+    this.themes = new Set(['garden', ...(d.themes || [])]);
+    this.theme = this.themes.has(d.theme) ? d.theme : 'garden';
+    this.stats = Object.assign({}, d.stats || {});
+    this.ach = new Set(d.ach || []);
+    if (TEST) {
+      this.themes = new Set(THEME_LIST); this.points = Math.max(this.points, 99999); this.seals = Math.max(this.seals, 999);
+      for (const it of ITEMS) this.items[it] = Math.max(this.items[it], 99);
+    }
+  }
+  save() {
+    this.rev++;
+    Store.set('profile', { seals: this.seals, items: this.items, collection: [...this.collection].sort((a, b) => a - b),
+      best_score: this.best_score, best_level: this.best_level, games: this.games, sound: this.sound, rev: this.rev,
+      points: this.points, themes: [...this.themes], theme: this.theme, stats: this.stats, ach: [...this.ach] });
+  }
+}
+
+class Run {
+  constructor(d) {
+    d = d || {};
+    this.board = d.board || [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
+    this.score = d.score || 0; this.next = d.next || Run.roll(); this.highest = d.highest || 0;
+    this.milestone = d.milestone || 0; this.history = d.history || []; this.streak = d.streak || 0; this.moves = d.moves || 0;
+    // items used in this garden, for the no-item achievements; a garden saved before tracking existed counts as having used them
+    this.used = d.used || (d.board ? { rewind: 1, hammer: 1, blueprint: 1 } : {});
+    // blocked tiles (premium themes): hit points per cell, 0 = free; plants counts plants for the lock timer
+    this.locks = d.locks || [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]; this.plants = d.plants || 0;
+  }
+  static roll() { let t = Math.random() * 100; for (const [lv, w] of D().spawn) { if ((t -= w) < 0) return lv; } return 1; }
+  toDict() { return { board: this.board, score: this.score, next: this.next, highest: this.highest, milestone: this.milestone, history: this.history.slice(-20), streak: this.streak, moves: this.moves, used: this.used, locks: this.locks, plants: this.plants }; }
+  snapshot() {
+    this.history.push({ board: this.board.map(r => r.slice()), score: this.score, next: this.next, highest: this.highest, locks: this.locks.map(r => r.slice()), plants: this.plants });
+    this.history = this.history.slice(-20); this.streak = 0; this.moves++;
+  }
+  lockCount() { let n = 0; for (const r of this.locks) for (const v of r) if (v) n++; return n; }
+  empties() { const e = []; for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) if (!this.board[r][c] && !this.locks[r][c]) e.push([r, c]); return e; }
+  at(p) { return this.board[p[0]][p[1]]; }
+  canMerge(a, b) {
+    if (!a || !b || Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) !== 1) return false;
+    const la = this.at(a); return la !== 0 && la === this.at(b) && la < MAX_LEVEL;
+  }
+  partners(a) {
+    return [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dr, dc]) => [a[0] + dr, a[1] + dc])
+      .filter(p => p[0] >= 0 && p[0] < 4 && p[1] >= 0 && p[1] < 4 && this.canMerge(a, p));
+  }
+  anyMerge() { for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) if (this.board[r][c] && this.partners([r, c]).length) return true; return false; }
+  stuck() { return !this.empties().length && !this.anyMerge(); }
+}
+
+// ============================================================== sound (Web Audio synth)
+const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+// Per-theme music and effect voices. A melody of 32 half-bar notes (0 = rest) over 8 chords of 8 steps each;
+// 'ambient' themes skip the melody and lay drones and stray bells instead.
+const SOUND = {
+  garden: {
+    beat: 0.3, voice: 'bell', bass: 'bell', sfx: 'bell', shift: 0,
+    chords: [[60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62], [60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62]],
+    melody: [76, 79, 81, 79, 76, 74, 72, 74, 76, 72, 69, 72, 74, 76, 74, 72, 77, 76, 74, 72, 74, 76, 79, 76, 74, 71, 72, 74, 79, 77, 76, 74],
+  },
+  magic: {
+    beat: 0.36, voice: 'celesta', bass: 'bell', sfx: 'celesta', shift: 5, echo: true,
+    chords: [[57, 60, 64], [53, 57, 60], [55, 59, 62], [52, 55, 59], [57, 60, 64], [50, 53, 57], [52, 56, 59], [57, 60, 64]],
+    melody: [81, 79, 76, 72, 74, 76, 79, 81, 84, 81, 79, 76, 74, 72, 71, 72, 76, 77, 79, 81, 79, 77, 76, 74, 76, 79, 83, 81, 80, 76, 74, 76],
+  },
+  japan: {
+    beat: 0.42, voice: 'koto', bass: 'koto', sfx: 'koto', shift: -3, sparseBass: true,
+    chords: [[57, 64, 69], [53, 60, 65], [57, 64, 69], [52, 59, 64], [57, 64, 69], [53, 60, 65], [52, 59, 64], [57, 64, 69]],
+    melody: [76, 0, 77, 76, 72, 0, 71, 69, 72, 0, 76, 0, 77, 81, 0, 76, 69, 0, 71, 72, 76, 0, 72, 71, 69, 0, 0, 64, 69, 0, 0, 0],
+  },
+  liminal: { beat: 0.6, sfx: 'eerie', shift: -12, ambient: true },
+  // slow, airy celesta in D minor with long echoes: aurora over a frozen lake
+  twilight: {
+    beat: 0.46, voice: 'celesta', bass: 'bell', sfx: 'celesta', shift: 2, echo: true, sparseBass: true,
+    chords: [[50, 57, 62], [46, 53, 58], [48, 55, 60], [45, 52, 57], [50, 57, 62], [43, 50, 55], [45, 52, 57], [50, 57, 62]],
+    melody: [74, 0, 77, 0, 81, 79, 77, 0, 74, 0, 72, 74, 76, 0, 0, 0, 77, 0, 81, 0, 84, 81, 79, 77, 76, 0, 74, 72, 74, 0, 0, 0],
+  },
+  // bright marching bells in C: off on an adventure
+  fantasy: {
+    beat: 0.26, voice: 'bell', bass: 'bell', sfx: 'bell', shift: 0,
+    chords: [[48, 55, 60], [48, 55, 60], [53, 57, 60], [55, 59, 62], [48, 55, 60], [45, 52, 57], [53, 57, 60], [55, 59, 62]],
+    melody: [72, 72, 76, 79, 84, 0, 79, 0, 77, 76, 74, 72, 74, 0, 79, 0, 72, 72, 76, 79, 84, 0, 86, 84, 81, 79, 77, 76, 74, 76, 72, 0],
+  },
+  // gentle celesta waves in G, a lazy beach afternoon
+  ocean: {
+    beat: 0.38, voice: 'celesta', bass: 'bell', sfx: 'celesta', shift: 7,
+    chords: [[55, 59, 62], [52, 55, 59], [48, 52, 55], [50, 54, 57], [55, 59, 62], [52, 55, 59], [48, 52, 55], [50, 54, 57]],
+    melody: [79, 81, 83, 0, 86, 83, 81, 79, 76, 0, 79, 0, 81, 0, 0, 0, 83, 81, 79, 0, 76, 79, 81, 83, 84, 83, 81, 0, 79, 0, 0, 0],
+  },
+  // soft celesta in C with long echoes: sunlight on fresh snow
+  wintersun: {
+    beat: 0.4, voice: 'celesta', bass: 'bell', sfx: 'celesta', shift: 0, echo: true, sparseBass: true,
+    chords: [[48, 52, 55], [53, 57, 60], [45, 48, 52], [43, 47, 50], [48, 52, 55], [52, 55, 59], [53, 57, 60], [43, 47, 50]],
+    melody: [76, 0, 79, 0, 84, 83, 79, 0, 77, 0, 76, 74, 72, 0, 0, 0, 74, 0, 76, 79, 81, 0, 79, 76, 77, 76, 74, 0, 72, 0, 0, 0],
+  },
+  // plucked lyre in D dorian
+  greek: {
+    beat: 0.34, voice: 'koto', bass: 'bell', sfx: 'koto', shift: 2,
+    chords: [[50, 53, 57], [43, 47, 50], [50, 53, 57], [48, 52, 55], [50, 53, 57], [45, 48, 52], [43, 47, 50], [50, 53, 57]],
+    melody: [74, 76, 77, 79, 81, 0, 79, 77, 76, 0, 74, 0, 72, 74, 76, 0, 77, 79, 81, 83, 84, 0, 81, 79, 77, 76, 74, 72, 74, 0, 0, 0],
+  },
+  // slow koto in the in-sen scale over a low drone: lanterns that lead nowhere
+  youkai: {
+    beat: 0.5, voice: 'koto', bass: 'drone', sfx: 'eerie', shift: -2, echo: true, sparseBass: true,
+    chords: [[40, 47, 52], [41, 48, 53], [40, 47, 52], [38, 45, 50], [40, 47, 52], [41, 48, 53], [45, 52, 57], [40, 47, 52]],
+    melody: [76, 0, 77, 0, 0, 81, 0, 83, 0, 0, 86, 0, 83, 81, 0, 0, 77, 0, 76, 0, 0, 74, 0, 76, 0, 0, 0, 0, 71, 0, 0, 0],
+  },
+  // drones and stray bells under the water
+  deepwood: { beat: 0.7, sfx: 'celesta', shift: -5, ambient: true },
+};
+const Snd = {
+  ac: null, on: true, step: 0, next: 0, timer: null, theme: null,
+  unlock() {
+    if (this.ac) { if (this.ac.state !== 'running') this.ac.resume().catch(() => {}); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    try { this.ac = new AC(); } catch (e) { return; }
+    this.master = this.ac.createGain(); this.master.gain.value = 0.7; this.master.connect(this.ac.destination);
+    this.music = this.ac.createGain(); this.music.gain.value = this.on ? 0.55 : 0; this.music.connect(this.master);
+    this.sfx = this.ac.createGain(); this.sfx.gain.value = 1; this.sfx.connect(this.master);
+    this.next = this.ac.currentTime + 0.15;
+    this.timer = setInterval(() => this.sched(), 60);
+  },
+  env(t, vol, dur) { const g = this.ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); return g; },
+  bell(t, f, dur, vol, dest, harm = 0.35) {
+    const g = this.env(t, vol, dur); g.connect(dest);
+    const o1 = this.ac.createOscillator(); o1.frequency.value = f; o1.connect(g);
+    const h = this.ac.createGain(); h.gain.value = harm; h.connect(g);
+    const o2 = this.ac.createOscillator(); o2.frequency.value = f * 2; o2.connect(h);
+    o1.start(t); o2.start(t); o1.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
+  },
+  // One note in a theme's instrument.
+  voice(kind, t, f, dur, vol, dest) {
+    const ac = this.ac, osc = (type, freq, gain, g) => {
+      const o = ac.createOscillator(); o.type = type; o.frequency.value = freq;
+      const v = ac.createGain(); v.gain.value = gain; o.connect(v); v.connect(g); o.start(t); o.stop(t + dur + 0.1); return o;
+    };
+    if (kind === 'bell') return this.bell(t, f, dur, vol, dest);
+    if (kind === 'celesta') {
+      const g = this.env(t, vol, dur * 1.3); g.connect(dest);
+      osc('sine', f, 1, g); osc('sine', f * 2, .18, g); osc('sine', f * 4, .12, g); return;
+    }
+    if (kind === 'koto') {
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur * .6); g.connect(dest);
+      const o = osc('triangle', f, 1, g); o.frequency.setValueAtTime(f * 1.012, t); o.frequency.exponentialRampToValueAtTime(f, t + .06);
+      osc('sine', f * 2, .25, g); return;
+    }
+    if (kind === 'drone') {
+      // slow swell through a low-pass filter, two saws a hair apart so it beats
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * .4);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.connect(g); g.connect(dest);
+      osc('sawtooth', f, .5, lp); osc('sawtooth', f * 1.006, .5, lp); return;
+    }
+    if (kind === 'eerie') {
+      // detuned pair plus an inharmonic partial: a bell that sounds slightly wrong
+      const g = this.env(t, vol, dur * 1.6); g.connect(dest);
+      osc('sine', f, 1, g); osc('sine', f * 1.03, .7, g); osc('sine', f * 2.76, .25, g); return;
+    }
+  },
+  sweep(t, f0, f1, dur, vol) {
+    const g = this.env(t, vol, dur); g.connect(this.sfx);
+    const o = this.ac.createOscillator(); o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f1, t + dur);
+    o.connect(g); o.start(t); o.stop(t + dur + 0.05);
+  },
+  noise(t, dur, vol) {
+    const n = Math.floor(this.ac.sampleRate * dur), buf = this.ac.createBuffer(1, n, this.ac.sampleRate), d = buf.getChannelData(0);
+    let last = 0; for (let i = 0; i < n; i++) { last = last * 0.7 + (Math.random() * 2 - 1) * 0.3; d[i] = last * 2; }
+    const src = this.ac.createBufferSource(); src.buffer = buf; const g = this.env(t, vol, dur); src.connect(g); g.connect(this.sfx); src.start(t);
+  },
+  play(name) {
+    if (!this.ac || !this.on || this.ac.state !== 'running') return;
+    const t = this.ac.currentTime + 0.01, S = SOUND[TH.id] || SOUND.garden, dark = S.sfx === 'eerie';
+    const seq = (notes, gap, dur, vol) => notes.forEach((n, i) => this.voice(S.sfx, t + i * gap, midi(n + S.shift), dur, vol, this.sfx));
+    switch (name) {
+      case 'click': this.voice(S.sfx, t, midi(84 + S.shift), 0.12, 0.12, this.sfx); break;
+      case 'place':
+        if (S.sfx === 'koto') this.voice('koto', t, midi(69), 0.5, 0.3, this.sfx);
+        else if (dark) { this.voice('eerie', t, midi(57), 0.3, 0.22, this.sfx); this.noise(t, 0.12, 0.12); }
+        else this.sweep(t, 300, 720, 0.16, 0.25);
+        break;
+      case 'merge': seq([76, 83], 0.07, 0.4, 0.22); if (dark) this.noise(t, 0.2, 0.15); break;
+      case 'bigmerge': seq(dark ? [72, 78, 72, 66] : [72, 76, 79, 84, 88], 0.06, 0.6, 0.18); if (dark) this.noise(t, 0.5, 0.18); break;
+      case 'hammer': this.noise(t, 0.3, 0.5); this.sweep(t, 180, 60, 0.3, 0.35); break;
+      case 'rewind': if (dark) { this.sweep(t, 400, 90, 0.6, 0.22); this.noise(t, 0.6, 0.2); } else this.sweep(t, 900, 300, 0.3, 0.2); break;
+      case 'blueprint': seq([79, 86], 0.05, 0.3, 0.16); break;
+      case 'milestone': seq([72, 76, 79, 84, 79, 84], 0.09, 0.7, 0.16); break;
+      case 'error': this.sweep(t, 220, 160, 0.18, 0.2); break;
+      case 'gameover': seq([79, 76, 72, 67], 0.16, 0.8, 0.18); break;
+      case 'coin': seq([88, 93], 0.06, 0.3, 0.16); break;
+    }
+  },
+  sched() {
+    if (!this.ac || this.ac.state !== 'running') return;
+    const S = SOUND[TH.id] || SOUND.garden, now = this.ac.currentTime;
+    if (this.theme !== TH.id) { this.theme = TH.id; this.step = 0; this.next = Math.max(this.next, now + 0.3); }
+    if (!this.on || this.next < now - 1) { this.next = now + 0.1; if (!this.on) return; }
+    while (this.next < now + 0.4) {
+      const st = this.step % 64, t = this.next, k = st % 8;
+      if (S.ambient) {
+        // fluorescent hum and a slow dissonant drone, with the odd distant bell
+        if (k === 0) { this.voice('drone', t, midi(st % 16 ? 33 : 34), S.beat * 9, 0.1, this.music); this.voice('drone', t, 60, S.beat * 9, 0.04, this.music); }
+        if (Math.random() < 0.06) this.voice('eerie', t, midi([75, 81, 70, 76][Math.floor(Math.random() * 4)]), 3, 0.05, this.music);
+      } else {
+        const ch = S.chords[Math.floor(st / 8)];
+        if (!S.sparseBass || k % 4 === 0) this.voice(S.bass, t, midi(ch[[0, 1, 2, 1, 0, 1, 2, 1][k]] - 12), 1.4, 0.05, this.music);
+        const n = st % 2 === 0 ? S.melody[st / 2] : 0;
+        if (n) {
+          this.voice(S.voice, t, midi(n), 1.4, 0.07, this.music);
+          if (S.echo) this.voice(S.voice, t + S.beat * 1.5, midi(n + 12), 1.2, 0.02, this.music);
+        }
+      }
+      this.next += S.beat; this.step++;
+    }
+  },
+  setOn(on) { this.on = on; if (this.music) this.music.gain.value = on ? 0.55 : 0; },
+};
+
+// ============================================================== stage & widgets
+let W = 1280, H = 720; // the layout block every scene draws in
+function panel(g, x, y, w, h, c = C.panel, r = 24) {
+  rr(g, 'rgba(50,40,30,0.22)', x + 2, y + 8, w, h, r, 0);
+  rr(g, OLc, x - 3, y - 3, w + 6, h + 6, r + 3, 0);
+  rr(g, c, x, y, w, h, r, 0);
+  g.beginPath(); g.roundRect(x + 6, y + 6, w - 12, h - 12, Math.max(4, r - 6)); g.lineWidth = 2; g.strokeStyle = col(shade(c, -.08)); g.stroke();
+}
+function ribbon(g, cx, cy, text, width, c = C.accent, size = 28) {
+  const h = 46;
+  for (const s of [-1, 1]) poly(g, shade(c, -.22), [[cx + s * (width / 2 - 10), cy - h / 2 + 8], [cx + s * (width / 2 + 26), cy - h / 2 + 8],
+    [cx + s * (width / 2 + 12), cy + 4], [cx + s * (width / 2 + 26), cy + h / 2 + 8], [cx + s * (width / 2 - 10), cy + h / 2 + 8]], 3);
+  rr(g, OLc, cx - width / 2 - 3, cy - h / 2 - 3, width + 6, h + 6, 12, 0);
+  rr(g, c, cx - width / 2, cy - h / 2, width, h, 10, 0);
+  rr(g, shade(c, .3), cx - width / 2 + 8, cy - h / 2 + 5, width - 16, 10, 5, 0);
+  T(g, text, cx, cy + 1, { size, outline: shade(c, -.45), ow: 3 });
+}
+function dim(g, a = 0.55) { g.fillStyle = `rgba(30,20,40,${a})`; g.fillRect(-app.ox - 10, -app.oy - 10, app.DW + 20, app.DH + 20); }
+const inRect = (p, r) => p.x >= r[0] && p.x <= r[0] + r[2] && p.y >= r[1] && p.y <= r[1] + r[3];
+
+class Button {
+  constructor(text, action, style = 'pink', size = 34, opts = {}) {
+    Object.assign(this, { text, action, style, size, rect: [0, 0, 1, 1], icon: null, enabled: true, hotkey: null, round: false, pressed: false, hover: 0, visible: true }, opts);
+  }
+  at(x, y, w, h) { this.rect = [x, y, w, h]; return this; }
+  handle(ev) {
+    if (!this.visible) return false;
+    if (ev.type === 'down' && inRect(ev, this.rect)) { this.pressed = true; return true; }
+    if (ev.type === 'up' && this.pressed) {
+      this.pressed = false;
+      if (inRect(ev, this.rect)) { if (this.enabled) { Snd.play('click'); this.action(); } else Snd.play('error'); }
+      return true;
+    }
+    if (ev.type === 'key' && this.hotkey && ev.key === this.hotkey && this.enabled) { Snd.play('click'); this.action(); return true; }
+    return false;
+  }
+  draw(g, dt) {
+    if (!this.visible) return;
+    const m = app.mouse, hov = m.has && inRect(m, this.rect) && this.enabled;
+    this.hover += ((hov ? 1 : 0) - this.hover) * Math.min(1, dt * 14);
+    const [body, fg] = STYLES[this.enabled ? this.style : 'gray'];
+    const sc = 1 + .05 * this.hover - (this.pressed ? .05 : 0);
+    const [rx, ry, rw0, rh0] = this.rect, w = rw0 * sc, h = rh0 * sc, x = rx + rw0 / 2 - w / 2, y = ry + rh0 / 2 - h / 2;
+    const rad = this.round ? h / 2 : Math.min(h / 2, 22);
+    rr(g, 'rgba(40,30,20,0.26)', x, y + 7, w, h - 2, rad, 0);
+    rr(g, OLc, x - 3, y - 3, w + 6, h + 6, rad + 3, 0);
+    rr(g, shade(body, -.25), x, y, w, h, rad, 0);
+    rr(g, shade(body, .12 * this.hover), x, y, w, h - 6, rad, 0);
+    rr(g, 'rgba(255,255,255,0.32)', x + 10, y + 5, w - 20, h * .32, rad, 0);
+    const cy = y + (h - 6) / 2, ol = fg[0] === 255 ? shade(body, -.5) : null;
+    const icon = typeof this.icon === 'function' ? this.icon() : this.icon;
+    if (icon) {
+      const is = Math.min(h * .78, 64);
+      if (this.text) {
+        const tw = textW(g, this.text, this.size), x0 = x + w / 2 - (is + 8 + tw) / 2;
+        g.drawImage(icon, x0, cy - is / 2, is, is);
+        T(g, this.text, x0 + is + 8, cy, { size: this.size, color: fg, outline: ol, ow: 3, align: 'left' });
+      } else g.drawImage(icon, x + w / 2 - is / 2, cy - is / 2, is, is);
+    } else if (this.text) T(g, this.text, x + w / 2, cy, { size: this.size, color: fg, outline: ol, ow: 3 });
+  }
+}
+
+class Particles {
+  constructor() { this.items = []; }
+  burst(x, y, n = 14, colors = [[255, 240, 150], [255, 255, 255], [255, 170, 200]], speed = 260, life = .7, size = 10) {
+    // premium themes burst into their painted particle sprites
+    const spr = TH.vfx && themeImg('fx_1');
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU, v = (0.3 + Math.random() * 0.7) * speed;
+      this.items.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, t: 0, life: life * (0.6 + Math.random() * 0.5) * (spr ? 1.3 : 1), c: colors[i % colors.length],
+        s: size * (0.6 + Math.random() * 0.6), k: spr ? 'spr' : 'star', si: 1 + (i % 3), a: Math.random() * TAU, va: (Math.random() - .5) * 6 });
+    }
+  }
+  dust(x, y, n = 16) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU, v = 60 + Math.random() * 180;
+      this.items.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, life: 0.4 + Math.random() * 0.3, c: i % 2 ? [200, 170, 140] : [230, 210, 180], s: 8 + Math.random() * 8, k: 'dot' });
+    }
+  }
+  text(x, y, txt) { this.items.push({ x, y, vx: 0, vy: -70, t: 0, life: 1, txt, k: 'text' }); }
+  update(dt) {
+    for (const p of this.items) {
+      p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.va) p.a += p.va * dt;
+      if (p.k === 'spr') { p.vy += 160 * dt; p.vx *= 0.96; } else if (p.k !== 'text') { p.vy += 380 * dt; p.vx *= 0.98; }
+    }
+    this.items = this.items.filter(p => p.t < p.life);
+  }
+  draw(g) {
+    for (const p of this.items) {
+      const k = 1 - p.t / p.life;
+      if (p.k === 'spr') {
+        const im = themeImg('fx_' + p.si); if (!im) continue;
+        const sz = p.s * 3.2 * (.6 + .4 * k);
+        g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = Math.min(1, k * 1.6);
+        g.translate(p.x, p.y); g.rotate(p.a); g.drawImage(im, -sz / 2, -sz / 2, sz, sz); g.restore();
+      } else if (p.k === 'star') sparkle(g, p.x, p.y, Math.max(1, p.s * k), p.c);
+      else if (p.k === 'dot') circ(g, p.c, p.x, p.y, Math.max(1, p.s * k), 0);
+      else T(g, p.txt, p.x, p.y, { size: 30, color: [255, 236, 120], kind: 'num', ow: 3, alpha: Math.min(1, k * 2) });
+    }
+  }
+}
+
+// Drifting decoration over the whole screen, in the current theme's style: petals, stars, maple leaves or soft VHS glitches.
+const FX_COLS = {
+  petals: ['rgb(255,190,210)', 'rgb(255,255,255)', 'rgb(255,220,235)', 'rgb(255,236,180)'],
+  stars: ['rgb(255,246,200)', 'rgb(220,214,255)', 'rgb(255,255,255)', 'rgb(236,206,140)'],
+  leaves: ['rgb(226,146,88)', 'rgb(232,178,96)', 'rgb(204,120,72)', 'rgb(214,170,110)'],
+  glitch: ['rgba(255,255,240,0.7)', 'rgba(200,230,226,0.7)', 'rgba(240,236,200,0.7)', 'rgba(255,255,255,0.6)'],
+  snow: ['rgba(255,255,255,0.9)', 'rgba(220,246,244,0.9)', 'rgba(232,226,255,0.85)', 'rgba(200,255,230,0.8)'],
+  sparkle: ['rgb(255,232,150)', 'rgb(255,255,255)', 'rgb(190,226,255)', 'rgb(200,240,200)'],
+  bubbles: ['rgba(255,255,255,0.75)', 'rgba(200,244,250,0.75)', 'rgba(170,230,240,0.7)', 'rgba(255,255,255,0.6)'],
+};
+const RISING_FX = ['stars', 'glitch', 'sparkle', 'bubbles'], SWAY_FX = ['petals', 'leaves', 'snow', 'bubbles'];
+// Premium themes: painted particle sprites (themes/<id>/fx_<n>.png) with glow, light rays and a breathing haze.
+const rnd = (a, b) => a + Math.random() * (b - a);
+class SpriteFx {
+  constructor(n) { this.k = n / 34; this.t = 0; this.id = TH.id; this.V = TH.vfx; this.items = []; this.V.sprites.forEach((s, i) => { for (let j = 0; j < Math.max(2, Math.round(s.n * this.k)); j++) this.items.push(this.mk(i, true)); }); }
+  mk(i, first) {
+    const s = this.V.sprites[i], m = s.mode, p = { i, s, sz: rnd(...s.size), a: Math.random() * TAU, va: (Math.random() - .5) * (s.spin || .4), ph: Math.random() * TAU, t: 0 };
+    p.x = Math.random() * app.DW; p.y = first ? Math.random() * app.DH : m === 'fall' ? -40 : app.DH + 40;
+    const v = s.speed ? rnd(...s.speed) : 0;
+    if (m === 'fall') { p.vx = rnd(4, 18); p.vy = v; }
+    else if (m === 'rise') { p.vx = rnd(-6, 6); p.vy = -v; }
+    else { p.vx = rnd(-1, 1) * v; p.vy = rnd(-1, 1) * v; p.life = s.life ? rnd(...s.life) : rnd(2, 4); p.t = first ? Math.random() * p.life : 0; if (!first) p.y = Math.random() * app.DH; }
+    return p;
+  }
+  update(dt) {
+    this.t += dt;
+    this.items.forEach((p, n) => {
+      const s = p.s; p.ph += dt * 1.6; p.a += p.va * dt; p.t += dt;
+      p.x += (p.vx + (s.sway ? Math.sin(p.ph) * s.sway : 0)) * dt; p.y += p.vy * dt;
+      const gone = p.life ? p.t > p.life : p.y > app.DH + 60 || p.y < -60 || p.x > app.DW + 60 || p.x < -60;
+      if (gone) this.items[n] = this.mk(p.i, false);
+    });
+  }
+  draw(g) {
+    const V = this.V, ox = app.ox, oy = app.oy;
+    g.save(); g.globalCompositeOperation = 'lighter';
+    if (V.haze) {
+      const [r, gg, b, a] = V.haze, k = a * (.75 + .25 * Math.sin(this.t * .5)), gr = g.createLinearGradient(0, app.DH - oy, 0, app.DH * .45 - oy);
+      gr.addColorStop(0, `rgba(${r},${gg},${b},${k})`); gr.addColorStop(1, `rgba(${r},${gg},${b},0)`);
+      g.fillStyle = gr; g.fillRect(-ox, -oy, app.DW, app.DH);
+    }
+    if (V.rays) {
+      // soft light shafts from above, slowly breathing (and swaying, underwater)
+      const R = V.rays, sx = app.DW * R.x - ox, len = app.DH * 1.3;
+      for (let i = 0; i < R.n; i++) {
+        const sw = R.sway ? Math.sin(this.t * .25 + i * 1.7) * .08 : 0, ang = Math.PI / 2 + (i - (R.n - 1) / 2) * .16 + (R.x - .5) * -.9 + sw;
+        const a = R.a * (.55 + .45 * Math.sin(this.t * .4 + i * 2.1)), wd = 40 + (i % 3) * 30;
+        g.save(); g.translate(sx, -oy - 40); g.rotate(ang - Math.PI / 2);
+        const gr = g.createLinearGradient(0, 0, 0, len); gr.addColorStop(0, col(R.c, a)); gr.addColorStop(1, col(R.c, 0));
+        g.fillStyle = gr; g.beginPath(); g.moveTo(-wd * .3, 0); g.lineTo(wd * .3, 0); g.lineTo(wd * 2.2, len); g.lineTo(-wd * 2.2, len); g.closePath(); g.fill(); g.restore();
+      }
+    }
+    g.restore();
+    for (const p of this.items) {
+      const im = themeImg('fx_' + (p.i + 1)); if (!im) continue;
+      const s = p.s, fade = p.life ? Math.sin(Math.PI * p.t / p.life) : 1, tw = s.mode === 'twinkle' ? .4 + .6 * Math.abs(Math.sin(p.ph * 1.3)) : 1;
+      const al = fade * tw, x = p.x - ox, y = p.y - oy;
+      if (al <= .01) continue;
+      g.save(); if (s.add) g.globalCompositeOperation = 'lighter';
+      if (s.glow) { g.globalAlpha = al * .5; glow(g, x, y, p.sz * 1.6, s.glow, 110); }
+      g.globalAlpha = al; g.translate(x, y); g.rotate(p.a); g.drawImage(im, -p.sz / 2, -p.sz / 2, p.sz, p.sz); g.restore();
+    }
+  }
+}
+
+class Ambient {
+  constructor(n = 34) { this.n = n; this.reset(); }
+  reset() {
+    this.spr = TH.vfx ? new SpriteFx(this.n) : null;
+    this.fx = TH.fx; this.t = 0; this.band = null; this.nextBand = 3 + Math.random() * 4;
+    if (this.spr) { this.items = []; return; }
+    const n = this.fx === 'stars' || this.fx === 'snow' ? this.n * 1.6 : this.fx === 'glitch' ? this.n * .6 : this.n;
+    this.items = Array.from({ length: Math.round(n) }, () => this.mk(Math.random()));
+  }
+  mk(yf) {
+    const f = this.fx, rise = RISING_FX.includes(f), r = Math.random();
+    return { x: Math.random() * app.DW - (rise ? 0 : 100), y: yf == null ? (rise ? app.DH + 20 : -20) : yf * app.DH,
+      vx: f === 'stars' || f === 'sparkle' ? (Math.random() - .5) * 6 : f === 'glitch' || f === 'bubbles' ? (Math.random() - .5) * 10 : f === 'snow' ? 6 + r * 14 : 20 + Math.random() * 40,
+      vy: f === 'stars' ? -(4 + r * 10) : f === 'sparkle' ? -(8 + r * 14) : f === 'bubbles' ? -(22 + r * 34) : f === 'glitch' ? -(3 + r * 8)
+        : f === 'leaves' ? 26 + r * 30 : f === 'snow' ? 18 + r * 26 : 30 + r * 40,
+      a: Math.random() * TAU, va: (Math.random() - .5) * (f === 'leaves' ? 2 : 3), c: FX_COLS[f][Math.floor(Math.random() * 4)],
+      ph: Math.random() * 6.28, sc: .6 + Math.random() * .6 };
+  }
+  update(dt) {
+    if (this.fx !== TH.fx || (this.spr && this.spr.id !== TH.id)) this.reset();
+    this.t += dt;
+    if (this.spr) { this.spr.update(dt); return; }
+    this.items.forEach((p, i) => {
+      p.ph += dt * 2; p.x += (p.vx + (SWAY_FX.includes(this.fx) ? Math.sin(p.ph) * (this.fx === 'bubbles' ? 14 : 30) : 0)) * dt; p.y += p.vy * dt; p.a += p.va * dt;
+      if (p.y > app.DH + 20 || p.y < -30 || p.x > app.DW + 30 || p.x < -130) this.items[i] = this.mk();
+    });
+    if (this.fx === 'glitch') {
+      if (this.band) { this.band.t += dt; if (this.band.t > this.band.life) this.band = null; }
+      else if ((this.nextBand -= dt) <= 0) {
+        this.band = { y: Math.random() * app.DH, h: 14 + Math.random() * 40, t: 0, life: .5 + Math.random() * .4 };
+        this.nextBand = 2.5 + Math.random() * 4;
+      }
+    }
+  }
+  draw(g) {
+    if (this.spr) { this.spr.draw(g); return; }
+    const f = this.fx;
+    for (const p of this.items) {
+      g.save(); g.translate(p.x - app.ox, p.y - app.oy); g.rotate(p.a); g.scale(p.sc, p.sc); g.fillStyle = p.c;
+      if (f === 'petals') {
+        g.beginPath(); g.ellipse(0, 0, 9, 6, 0, 0, TAU); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.5)'; g.beginPath(); g.ellipse(-2, -2, 3.5, 2, 0, 0, TAU); g.fill();
+      } else if (f === 'stars' || f === 'sparkle') {
+        g.globalAlpha = .35 + .65 * (.5 + .5 * Math.sin(p.ph * 1.7));
+        if (p.sc > (f === 'sparkle' ? .8 : 1)) sparkle(g, 0, 0, f === 'sparkle' ? 9 : 7, p.c); else { g.beginPath(); g.arc(0, 0, 2.2, 0, TAU); g.fill(); }
+      } else if (f === 'snow') {
+        g.beginPath(); g.arc(0, 0, 3.6, 0, TAU); g.fill();
+        if (p.sc > 1.05) { g.globalAlpha = .5 + .5 * Math.sin(p.ph); sparkle(g, 0, 0, 6, 'rgb(190,255,226)'); }
+      } else if (f === 'bubbles') {
+        g.strokeStyle = p.c; g.lineWidth = 1.8; g.beginPath(); g.arc(0, 0, 7, 0, TAU); g.stroke();
+        g.fillStyle = 'rgba(255,255,255,0.7)'; g.beginPath(); g.arc(-2.5, -2.5, 1.8, 0, TAU); g.fill();
+      } else if (f === 'leaves') {
+        g.beginPath();
+        for (let k = 0; k < 10; k++) { const r = k % 2 ? 4.5 : 11, a = -Math.PI / 2 + k * Math.PI / 5; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+        g.closePath(); g.fill(); g.strokeStyle = 'rgba(120,70,40,0.5)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(0, 2); g.lineTo(0, 13); g.stroke();
+      } else {
+        g.globalAlpha = .25 + .2 * Math.sin(p.ph); g.beginPath(); g.arc(0, 0, 2.6, 0, TAU); g.fill();
+      }
+      g.restore();
+    }
+    if (f === 'glitch') {
+      // faint scanlines and an occasional slow, soft band; no strobing
+      g.fillStyle = 'rgba(20,20,14,0.07)';
+      for (let y = -app.oy; y < app.DH - app.oy; y += 4) g.fillRect(-app.ox, y, app.DW, 1);
+      // dark vignette that slowly breathes
+      const cx = W / 2, cy = H / 2, R = Math.hypot(app.DW, app.DH) / 2, vg = g.createRadialGradient(cx, cy, R * .35, cx, cy, R);
+      vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(0,0,0,${.45 + .08 * Math.sin(this.t * .7)})`);
+      g.fillStyle = vg; g.fillRect(-app.ox, -app.oy, app.DW, app.DH);
+      if (this.band) {
+        const b = this.band, k = Math.sin(Math.PI * b.t / b.life), y = b.y - app.oy, off = Math.sin(this.t * 40) * 6 * k;
+        g.fillStyle = `rgba(150,210,205,${.22 * k})`; g.fillRect(-app.ox + off, y, app.DW, b.h);
+        g.fillStyle = `rgba(240,220,150,${.18 * k})`; g.fillRect(-app.ox - off, y + 3, app.DW, b.h * .6);
+        g.fillStyle = `rgba(255,255,255,${.18 * k})`; g.fillRect(-app.ox, y + b.h * .5, app.DW, 1);
+      }
+    }
+  }
+}
+
+class Dialog {
+  constructor(title, lines, buttons) { this.title = title; this.lines = lines; this.buttons = buttons; this.layout(); }
+  layout() {
+    this.rect = [W / 2 - 280, H / 2 - 150, 560, 300];
+    const n = this.buttons.length, bw = Math.min(220, (500 - (n - 1) * 20) / n), tot = n * bw + (n - 1) * 20;
+    this.buttons.forEach((b, i) => b.at(W / 2 - tot / 2 + i * (bw + 20), this.rect[1] + this.rect[3] - 90, bw, 62));
+  }
+  handle(ev) { for (const b of this.buttons) if (b.handle(ev)) return true; return true; }
+  draw(g, dt) {
+    dim(g); const [x, y, w, h] = this.rect;
+    panel(g, x, y, w, h); ribbon(g, x + w / 2, y, this.title, Math.max(260, this.title.length * 17));
+    this.lines.forEach((ln, i) => T(g, ln, x + w / 2, y + 74 + i * 36, { size: 24, color: C.ink, outline: null, kind: 'body' }));
+    for (const b of this.buttons) b.draw(g, dt);
+  }
+}
+
+// ============================================================== scenes
+class Scene {
+  constructor() { this.buttons = []; }
+  layout() {}
+  handle(ev) { for (const b of this.buttons) if (b.handle(ev)) return true; return false; }
+  update() {}
+  draw() {}
+  bg() { return null; }
+}
+
+function cycleTheme() {
+  const next = THEME_LIST[(THEME_LIST.indexOf(TH.id) + 1) % THEME_LIST.length];
+  app.profile.theme = next; app.profile.save(); app.setTheme(next); Snd.play('blueprint');
+}
+function testButton() { return new Button('Theme', cycleTheme, 'gold', 26, { visible: TEST }); }
+
+function soundButton() {
+  const b = new Button('', null, 'blue', 0, { round: true, hotkey: 'm' });
+  b.icon = app.icons[app.profile.sound ? 'music' : 'mute'];
+  b.action = () => {
+    app.profile.sound = !app.profile.sound; Snd.setOn(app.profile.sound); app.profile.save();
+    b.icon = app.icons[app.profile.sound ? 'music' : 'mute'];
+  };
+  return b;
+}
+
+class MenuScene extends Scene {
+  constructor() {
+    super();
+    this.t = 0; this.dialog = null; this.petals = new Ambient();
+    this.bStart = new Button('Start', () => this.start(), 'pink', 38);
+    this.bCont = new Button('Continue', () => this.cont(), 'green', 38);
+    this.bLoad = new Button('Load', () => app.switch(new SlotScene('load', this)), 'blue', 38);
+    this.bExit = new Button('Exit', () => this.exit(), 'cream', 38);
+    this.bBook = new Button('', () => app.switch(new CollectionScene(this)), 'green', 0, { icon: app.icons.book, round: true });
+    this.bShop = new Button('', () => app.switch(new ShopScene(this)), 'gold', 0, { icon: app.icons.shop, round: true });
+    this.bPoint = new Button('', () => app.switch(new PointShopScene(this)), 'blue', 0, { icon: () => app.pointIcon(), round: true });
+    this.bSound = soundButton();
+    this.bTheme = testButton();
+    this.bAllow = new Button('Allow saving', () => this.askSave(), 'gold', 20, { visible: false });
+    this.bCode = new Button('Save Code', () => SaveCode.show(), 'cream', 20);
+    this.bAch = new Button('', () => app.switch(new AchievementScene(this)), 'gold', 0, { icon: app.icons.trophy, round: true });
+    this.buttons = [this.bStart, this.bCont, this.bLoad, this.bExit, this.bBook, this.bAch, this.bShop, this.bPoint, this.bSound, this.bTheme, this.bAllow, this.bCode];
+    this.refresh(); this.layout();
+  }
+  askSave() {
+    this.dialog = new Dialog('Allow saving?', ['Your browser is blocking this game\'s saves.', 'Tap Allow, then accept the popups.'], [
+      new Button('Allow', () => { this.dialog = null; Store.askAccess(); }, 'green', 32),
+      new Button('Later', () => { this.dialog = null; }, 'cream', 32)]);
+  }
+  layout() {
+    const cx = W / 2, p = app.portrait, y0 = p ? 560 : 318, step = p ? 92 : 82, bw = p ? 400 : 340, bh = p ? 74 : 68;
+    [this.bStart, this.bCont, this.bLoad, this.bExit].forEach((b, i) => b.at(cx - bw / 2, y0 + i * step, bw, bh));
+    this.bBook.at(40, H - 110, 84, 84); this.bAch.at(150, H - 110, 84, 84); this.bShop.at(W - 124, H - 110, 84, 84); this.bPoint.at(W - 234, H - 110, 84, 84);
+    this.bSound.at(30, 26, 64, 64); this.bTheme.at(108, 26, 150, 64);
+    this.bCode.at(W - 255, 150, 190, 46); this.bAllow.at(W - 255, 204, 190, 46);
+    if (this.dialog) this.dialog.layout();
+  }
+  bg() { return 'menu'; }
+  refresh() { this.bCont.enabled = !!Store.get('autosave'); }
+  start() {
+    if (Store.get('autosave')) {
+      this.dialog = new Dialog('New Garden?', ['Your unfinished garden will be lost.', 'Start a brand new one?'], [
+        new Button('Yes', () => { this.dialog = null; app.switch(new GameScene(new Run())); }, 'pink', 32),
+        new Button('No', () => { this.dialog = null; }, 'cream', 32)]);
+    } else app.switch(new GameScene(new Run()));
+  }
+  cont() { const d = Store.get('autosave'); if (d) app.switch(new GameScene(new Run(d))); }
+  exit() {
+    Store.flush();
+    this.dialog = new Dialog('See you soon!', ['Your garden is saved.', 'You can close this tab or app now.'],
+      [new Button('OK', () => { this.dialog = null; }, 'green', 32)]);
+  }
+  handle(ev) {
+    if (this.dialog) { if (ev.type === 'key' && ev.key === 'Escape') this.dialog = null; else this.dialog.handle(ev); return true; }
+    return super.handle(ev);
+  }
+  update(dt) {
+    this.t += dt; this.petals.update(dt);
+    const loading = app.loadingSaves();
+    this.bStart.enabled = this.bLoad.enabled = !loading;
+    this.bCont.enabled = !loading && !!Store.get('autosave');
+    // achievements already earned by the progress saved before they existed
+    if (Store.settled && !app.achChecked) { app.achChecked = true; Ach.commit(false); }
+    this.bAllow.visible = Store.needsAccess();
+    if (!app.askedSave && Store.settled && !this.dialog) {
+      app.askedSave = true;
+      const tried = window.name === ACCESS_TRIED; window.name = '';
+      if (Store.state === 'viewonly') this.dialog = new Dialog('Wrong account?', ['This claude.ai account can only view the game,',
+        'so it can\'t save here. Switch to the account', 'that owns the game, or use Save Code.'], [
+        new Button('Save Code', () => { this.dialog = null; SaveCode.show(); }, 'green', 30),
+        new Button('OK', () => { this.dialog = null; }, 'cream', 30)]);
+      else if (!this.bAllow.visible) { /* saving works */ }
+      else if (!tried) this.askSave();  // once per visit
+      else this.dialog = new Dialog('Saving is blocked', ['Allow didn\'t work on this browser.',
+        'Use Save Code to move your progress', 'between devices instead.'], [
+        new Button('Save Code', () => { this.dialog = null; SaveCode.show(); }, 'green', 30),
+        new Button('OK', () => { this.dialog = null; }, 'cream', 30)]);
+    }
+  }
+  draw(g, dt) {
+    const p = app.portrait, cx = W / 2;
+    const pulse = .5 + .5 * Math.sin(this.t * 1.6);
+    if (TH.fx !== 'glitch') glow(g, cx, (p ? 700 : 420), 180 + 20 * pulse, [255, 252, 220], 60 + 50 * pulse);
+    this.petals.draw(g);
+    const bob = Math.sin(this.t * 1.8) * 5, ly = p ? 300 : 175, ts = p ? 84 : 92;
+    if (TH.fx !== 'glitch') glow(g, cx, ly - 10 + bob, 260, [255, 255, 255], 120);
+    const logo = TH.name.replace(/^The /, ''), lsz = ts * Math.min(1, 13 / logo.length);
+    if (logo !== TH.name) T(g, 'The', cx - Math.min(p ? 170 : 190, textW(g, logo, lsz, 'title') / 2 - 20), ly - 66 + bob, { size: 40, kind: 'title', outline: C.accentDark, ow: 4 });
+    T(g, logo, cx, ly + 4 + bob, { size: lsz, kind: 'title', color: C.titleShadow, outline: C.titleOl, ow: 7 });
+    T(g, logo, cx, ly + bob, { size: lsz, kind: 'title', color: [255, 250, 240], outline: null });
+    T(g, '~ Merge Puzzle Event ~', cx, ly + 76 + bob, { size: 26, outline: C.good, ow: 3 });
+    if (TH.fx !== 'glitch') [[cx - 330, ly - 45], [cx + 330, ly - 25], [cx + 260, ly - 85]].forEach(([x, y], i) => sparkle(g, x, y + bob, 10 + 4 * Math.sin(this.t * 3 + i), [255, 250, 200]));
+    const gy = (p ? 920 : 470) + Math.sin(this.t * 2.4) * 6, gs = p ? 170 : 150;
+    g.drawImage(app.mascot(), p ? W - 30 - gs : cx + 250, gy, gs, gs);
+    g.save(); g.translate(p ? 30 + gs : cx - 250, gy + 10); g.scale(-1, 1); g.drawImage(app.mascot(), 0, 0, gs, gs); g.restore();
+    // profile pill
+    const pr = app.profile, ix = W - 300, iy = 22;
+    rr(g, OLc, ix - 2, iy - 2, 274, 56, 28, 0); rr(g, C.panel, ix, iy, 270, 52, 26, 0);
+    g.drawImage(app.icons.seal, ix + 8, iy + 6, 40, 40);
+    T(g, fmt(pr.seals), ix + 54, iy + 27, { size: 26, color: C.seal, outline: null, kind: 'num', align: 'left' });
+    g.drawImage(app.pointIcon(), ix + 138, iy + 7, 38, 38);
+    T(g, fmt(pr.points), ix + 182, iy + 27, { size: 26, color: C.accentDark, outline: null, kind: 'num', align: 'left' });
+    const status = app.loadingSaves() ? ['Loading your saves…', [150, 120, 80]] : {
+      cloud: ['Synced to your account', [80, 150, 70]],
+      error: ['Cloud save failed – kept on this device', [190, 120, 60]],
+      signedout: ['Sign in to claude.ai to sync devices', [190, 120, 60]],
+      viewonly: ['View-only account: switch to sync', [190, 120, 60]],
+      nohost: ['Open via the claude.ai link to sync', [190, 120, 60]],
+      test: ['Test mode – saves stay on this device', C.accentDark],
+    }[Store.state] || ['Saves stay on this device only', C.accentDark];
+    T(g, 'Best ' + fmt(pr.best_score), ix + 135, iy + 72, { size: 17, outline: C.titleOl, ow: 2 });
+    T(g, status[0], ix + 135, iy + 96, { size: 15, outline: status[1], ow: 2 });
+    if (Store.state !== 'cloud' && !app.loadingSaves()) {
+      // what this device kept from the last visit, so a lost save is visible at a glance
+      const last = Math.max(0, ...KEYS.map(k => (Store.loadedT || {})[k] || 0));
+      const dev = !Store.localOk ? 'device storage blocked' : last ? 'device save from ' + new Date(last).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'no device save found';
+      T(g, [Store.lastErr, dev].filter(Boolean).join(' · ').slice(0, 52), ix + 135, iy + 116, { size: 13, outline: status[1], ow: 2 });
+    }
+    T(g, 'Collection', 82, H - 120, { size: 20, ow: 2 }); T(g, `Trophies ${app.profile.ach.size}`, 192, H - 120, { size: 16, ow: 2 }); T(g, 'Item Shop', W - 82, H - 120, { size: 16, ow: 2 });
+    T(g, 'Point Shop', W - 192, H - 120, { size: 16, ow: 2 });
+    for (const b of this.buttons) b.draw(g, dt);
+    if (this.dialog) this.dialog.draw(g, dt);
+  }
+}
+
+class GameScene extends Scene {
+  constructor(run) {
+    super();
+    this.run = run; this.parts = new Particles(); this.anims = new Map(); this.fx = new Ambient(14);
+    this.mode = null; this.selected = null; this.press = null; this.dragging = false; this.drag = { x: 0, y: 0 };
+    this.t = 0; this.toasts = []; this.overlay = null; this.results = null; this.stuck = false; this.endAt = null;
+    this.tip = TIP_DEFAULT; this.nextAnim = -1;
+    this.plantBtn = new Button('PLANT', () => this.plant(), 'green', 40, { hotkey: ' ' });
+    this.itemBtns = {};
+    for (const it of ITEMS) this.itemBtns[it] = new Button('', () => this.useItem(it), 'cream', 0, { icon: () => app.itemIcon(it) });
+    this.pauseBtn = new Button('', () => this.pause(), 'pink', 0, { icon: app.icons.pause, round: true });
+    this.soundBtn = soundButton();
+    this.themeBtn = testButton();
+    this.buttons = [this.plantBtn, ...Object.values(this.itemBtns), this.pauseBtn, this.soundBtn, this.themeBtn];
+    this.pauseBtns = [
+      new Button('Resume', () => { this.overlay = null; }, 'green', 32),
+      new Button('Save Game', () => app.switch(new SlotScene('save', this)), 'blue', 32),
+      new Button('Retry (Finish)', () => this.finish(), 'gold', 32),
+      new Button('Main Menu', () => this.toMenu(), 'cream', 32)];
+    this.resultBtns = [new Button('Play Again', () => app.switch(new GameScene(new Run())), 'green', 30), new Button('Main Menu', () => this.toMenu(), 'cream', 30)];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) if (run.board[r][c]) this.anims.set(r * 4 + c, ['spawn', -Math.random() * .3]);
+    this.layout(); this.checkStuck(); this.autosave();
+  }
+  layout() {
+    const p = app.portrait;
+    const L = this.L = p ? {
+      cell: 150, gap: 12, bx: 30, by: 300, title: [430, 62, 46],
+      score: [30, 130, 325, 130], goal: [365, 130, 325, 130], next: [30, 1040, 220, 200],
+      plant: [270, 1040, 420, 86], items: i => [270 + i * 145, 1146, 130, 92], tip: [30, 980, 660, 44],
+    } : {
+      cell: 124, gap: 10, bx: 367, by: 140, title: [640, 66, 54],
+      score: [40, 150, 290, 120], best: [40, 290, 290, 62], goal: [40, 372, 290, 140], deco: [40, 532, 290, 150],
+      next: [950, 150, 290, 220], plant: [968, 392, 254, 72], items: i => [950 + i * 100, 498, 90, 90], bubble: [1036, 618, 214, 82],
+    };
+    L.size = 4 * L.cell + 5 * L.gap;
+    this.plantBtn.at(...L.plant);
+    ITEMS.forEach((it, i) => this.itemBtns[it].at(...L.items(i)));
+    this.pauseBtn.at(30, 26, 64, 64); this.soundBtn.at(108, 26, 64, 64); this.themeBtn.at(186, 26, 130, 64);
+    this.themeBtn.visible = TEST && !p;  // in portrait it would cover the title; the menu button and T key still work
+    this.pauseBtns.forEach((b, i) => b.at(W / 2 - 160, H / 2 - 110 + i * 76, 320, 62));
+    this.boardImg = makeBoard(L.cell, L.gap, app.q);
+  }
+  bg() { return 'game'; }
+  boardRect() { return [this.L.bx, this.L.by, this.L.size, this.L.size]; }
+  cellRect(r, c) { const L = this.L; return [L.bx + L.gap + c * (L.cell + L.gap), L.by + L.gap + r * (L.cell + L.gap), L.cell, L.cell]; }
+  cellCenter(p) { const [x, y, w, h] = this.cellRect(p[0], p[1]); return [x + w / 2, y + h / 2]; }
+  cellAt(pt) { for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) if (inRect(pt, this.cellRect(r, c))) return [r, c]; return null; }
+  same(a, b) { return a && b && a[0] === b[0] && a[1] === b[1]; }
+
+  // ---------------------------------------------------------- actions
+  autosave() { if (!this.results) Store.set('autosave', this.run.toDict()); }
+  gain(level) {
+    const p = app.profile;
+    if (level > this.run.highest) this.run.highest = level;
+    if (!p.collection.has(level)) {
+      p.collection.add(level);
+      const bonus = COLLECT[level];
+      if (bonus) { p.seals += bonus; Ach.bump('sealsEarned', bonus); this.toast(`New decoration: ${TH.names[level]}!  +${bonus} seals`, [255, 200, 70]); }
+      p.save();
+    }
+  }
+  points(pts, x, y) {
+    pts = Math.round(pts * D().mul);
+    this.run.score += pts; this.parts.text(x, y, '+' + fmt(pts)); Ach.bump('totalScore', pts);
+    const p = app.profile;
+    while (this.run.milestone < MILESTONES.length && this.run.score >= MILESTONES[this.run.milestone][0]) {
+      const [goal, reward] = MILESTONES[this.run.milestone];
+      for (const k in reward) p.items[k] += reward[k];
+      p.save(); this.run.milestone++;
+      this.toast(`Goal ${fmt(goal)} reached!  ` + Object.entries(reward).map(([k, v]) => `+${v} ${ITEM_SHORT[k]}`).join(', '), C.good);
+      Snd.play('milestone');
+    }
+  }
+  toast(txt, c) { this.toasts.push({ txt, c, t: 0 }); }
+  placeAt(cell) {
+    const run = this.run; run.snapshot();
+    const lv = run.next; run.board[cell[0]][cell[1]] = lv; run.next = Run.roll(); this.nextAnim = this.t;
+    this.anims.set(cell[0] * 4 + cell[1], ['spawn', this.t]); Snd.play('place');
+    Ach.bump('plants'); this.gain(lv); this.points(POINTS[lv], ...this.cellCenter(cell));
+    run.plants++; this.maybeLock(); this.after();
+  }
+  // A theme's blocked tile appears every few plants, but never while the board is nearly full.
+  maybeLock() {
+    const run = this.run, lk = D().lock;
+    if (!lk || run.plants % lk.every || run.lockCount() >= lk.max) return;
+    const e = run.empties(); if (e.length < 4) return;
+    const [r, c] = e[Math.floor(Math.random() * e.length)];
+    run.locks[r][c] = lk.hp; this.anims.set(16 + r * 4 + c, ['spawn', this.t + .15]);
+    this.parts.burst(...this.cellCenter([r, c]), 12, undefined, 180);
+    this.tip = `A ${lk.name} appeared! Merge next to it${lk.hp > 1 ? ` ${lk.hp} times` : ''} or use the Hammer.`;
+  }
+  // Merging next to a blocked tile chips it; at 0 it breaks.
+  chipLocks(cells) {
+    const run = this.run, seen = new Set();
+    for (const [r0, c0] of cells) for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const r = r0 + dr, c = c0 + dc, k = r * 4 + c;
+      if (r < 0 || r > 3 || c < 0 || c > 3 || seen.has(k) || !run.locks[r][c]) continue;
+      seen.add(k); run.locks[r][c]--;
+      const [x, y] = this.cellCenter([r, c]);
+      if (run.locks[r][c]) { this.anims.set(16 + k, ['merge', this.t]); this.parts.dust(x, y, 10); }
+      else this.breakLock(x, y);
+    }
+  }
+  breakLock(x, y) {
+    this.parts.dust(x, y, 22); this.parts.burst(x, y, 18, undefined, 320);
+    Ach.bump('locksBroken'); this.toast(`${D().lock ? D().lock.name : 'Block'} broken!`, C.gold); Snd.play('hammer');
+  }
+  plant() {
+    if (this.stuck) { this.finish(); return; }
+    if (this.overlay || this.endAt) return;
+    if (this.mode === 'blueprint') this.mode = null;
+    const e = this.run.empties();
+    if (!e.length) { Snd.play('error'); this.tip = 'No room! Merge something or use the hammer.'; return; }
+    this.placeAt(e[Math.floor(Math.random() * e.length)]);
+  }
+  merge(a, b) {
+    const run = this.run, lv = run.at(a) + 1;
+    run.snapshot(); run.board[a[0]][a[1]] = 0; run.board[b[0]][b[1]] = lv;
+    this.anims.set(b[0] * 4 + b[1], ['merge', this.t]);
+    const [x, y] = this.cellCenter(b);
+    this.parts.burst(x, y, 10 + lv * 2, undefined, 200 + lv * 20);
+    Snd.play(lv >= 6 ? 'bigmerge' : 'merge');
+    Ach.bump('merges'); Ach.bump('made' + lv); this.gain(lv); this.points(POINTS[lv], x, y); this.chipLocks([a, b]); this.after();
+  }
+  after() { this.selected = null; Ach.runStats(this.run); Ach.commit(); this.checkStuck(); this.autosave(); }
+  checkStuck() {
+    const run = this.run, p = app.profile; this.stuck = false;
+    if (!run.stuck()) { this.plantBtn.text = 'PLANT'; this.plantBtn.style = 'green'; return; }
+    if (p.items.hammer > 0 || (p.items.rewind > 0 && run.history.length && run.streak < D().rewind)) {
+      this.stuck = true; this.plantBtn.text = 'FINISH'; this.plantBtn.style = 'gold';
+      this.tip = 'The garden is full! Use an item or press Finish.';
+    } else { this.endAt = this.t + 1; this.tip = 'The garden is full!'; }
+  }
+  useItem(it) {
+    if (this.overlay || this.endAt) return;
+    const p = app.profile, run = this.run;
+    if (p.items[it] <= 0) { Snd.play('error'); this.tip = `Out of ${TH.items[it]}! Get more in the Shop.`; return; }
+    if (it === 'rewind') {
+      if (!run.history.length) { this.tip = 'Nothing to rewind yet.'; Snd.play('error'); return; }
+      if (run.streak >= D().rewind) { this.tip = 'Make a move before rewinding again.'; Snd.play('error'); return; }
+      const s = run.history.pop();
+      run.board = s.board; run.score = s.score; run.next = s.next; run.highest = s.highest; run.streak++;
+      if (s.locks) { run.locks = s.locks; run.plants = s.plants || 0; }
+      p.items.rewind--; run.used.rewind = 1; Ach.bump('rewind'); if (run.streak >= REWIND_STREAK) Ach.best('rewind3', 1);
+      p.save(); this.mode = null; Snd.play('rewind');
+      const [bx, by, bs] = this.boardRect();
+      this.parts.burst(bx + bs / 2, by + bs / 2, 16, [[210, 160, 120], [255, 255, 255]], 300);
+      this.tip = `Rewound! (${run.streak}/${D().rewind} in a row)`;
+      this.after();
+    } else {
+      this.mode = this.mode === it ? null : it; this.selected = null;
+      const touch = app.lastPointer !== 'mouse';
+      this.tip = this.mode === 'hammer' ? `${touch ? 'Tap' : 'Click'} a decoration to smash it. Tap Hammer again to cancel.`
+        : this.mode === 'blueprint' ? `${touch ? 'Tap' : 'Click'} an empty tile to plant there. Tap Blueprint again to cancel.` : TIP_DEFAULT;
+    }
+  }
+  boardTap(cell) {
+    const run = this.run, p = app.profile, lv = run.at(cell);
+    if (this.mode === 'hammer' && !lv && run.locks[cell[0]][cell[1]]) {
+      run.snapshot(); run.locks[cell[0]][cell[1]] = 0; p.items.hammer--; run.used.hammer = 1; Ach.bump('hammer'); p.save();
+      this.breakLock(...this.cellCenter(cell));
+      this.mode = null; this.tip = 'Smash! The tile is free again.'; this.endAt = null; this.after(); return;
+    }
+    if (this.mode === 'hammer') {
+      if (!lv) return;
+      if (!run.empties().length) Ach.best('escape', 1);
+      if (lv >= 7) Ach.best('bigSmash', 1);
+      run.snapshot(); run.board[cell[0]][cell[1]] = 0; p.items.hammer--; run.used.hammer = 1; Ach.bump('hammer'); p.save();
+      this.parts.dust(...this.cellCenter(cell)); Snd.play('hammer');
+      this.mode = null; this.tip = 'Smash! A tile is free again.'; this.endAt = null; this.after(); return;
+    }
+    if (this.mode === 'blueprint') {
+      if (lv) { Snd.play('error'); return; }
+      p.items.blueprint--; run.used.blueprint = 1; Ach.bump('blueprint'); p.save(); this.mode = null; Snd.play('blueprint'); this.tip = TIP_DEFAULT; this.placeAt(cell); return;
+    }
+    if (this.selected && run.canMerge(this.selected, cell)) this.merge(this.selected, cell);
+    else if (lv && !this.same(this.selected, cell)) this.selected = cell;
+    else this.selected = null;
+  }
+  pause() { if (!this.results) { this.overlay = 'pause'; this.mode = null; } }
+  finish() {
+    const run = this.run, p = app.profile, seals = SEALS[run.highest], points = pointsFor(run);
+    p.seals += seals; p.points += points; p.games++;
+    const newBest = run.score > p.best_score;
+    p.best_score = Math.max(p.best_score, run.score); p.best_level = Math.max(p.best_level, run.highest);
+    Ach.bump('sealsEarned', seals); Ach.bump('pointsEarned', points); Ach.bump('games_' + TH.id);
+    if (!run.used.rewind && !run.used.hammer && !run.used.blueprint) Ach.best('cleanFinish', run.score);
+    Ach.runStats(run); Ach.commit();
+    Store.set('autosave', null);
+    this.results = { seals, points, newBest, t: this.t }; this.overlay = 'results'; this.stuck = false; this.endAt = null;
+    Snd.play('gameover');
+  }
+  toMenu() { this.autosave(); app.switch(new MenuScene()); }
+
+  // ---------------------------------------------------------- input
+  handle(ev) {
+    if (this.overlay === 'pause') {
+      for (const b of this.pauseBtns) if (b.handle(ev)) return true;
+      if (ev.type === 'key' && ev.key === 'Escape') this.overlay = null;
+      return true;
+    }
+    if (this.overlay === 'results') { for (const b of this.resultBtns) if (b.handle(ev)) return true; return true; }
+    if (ev.type === 'key') {
+      if (ev.key === 'Escape') { if (this.mode || this.selected) { this.mode = this.selected = null; this.tip = TIP_DEFAULT; } else this.pause(); return true; }
+      const km = { z: 'rewind', '1': 'rewind', '2': 'hammer', '3': 'blueprint' };
+      if (km[ev.key]) { this.useItem(km[ev.key]); return true; }
+    }
+    if (super.handle(ev)) return true;
+    if (this.endAt) return false;
+    if (ev.type === 'rclick') { this.mode = this.selected = null; this.tip = TIP_DEFAULT; }
+    else if (ev.type === 'down') {
+      const cell = this.cellAt(ev);
+      if (cell) { this.press = { cell, x: ev.x, y: ev.y }; this.dragging = false; }
+      else if (this.selected) this.selected = null;
+    } else if (ev.type === 'move' && this.press) {
+      this.drag = { x: ev.x, y: ev.y };
+      if (!this.mode && this.run.at(this.press.cell) && Math.hypot(ev.x - this.press.x, ev.y - this.press.y) > 8) { this.dragging = true; this.selected = this.press.cell; }
+    } else if (ev.type === 'up' && this.press) {
+      const cell = this.press.cell, target = this.cellAt(ev);
+      if (this.dragging) {
+        if (target && !this.same(target, cell) && this.run.canMerge(cell, target)) this.merge(cell, target);
+        else { if (target && !this.same(target, cell)) Snd.play('error'); this.selected = null; }
+      } else if (this.same(target, cell)) this.boardTap(cell);
+      this.press = null; this.dragging = false;
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------- update/draw
+  update(dt) {
+    this.t += dt; this.parts.update(dt); this.fx.update(dt);
+    for (const s of this.toasts) s.t += dt;
+    this.toasts = this.toasts.filter(s => s.t < 3.2);
+    if (this.endAt && this.t >= this.endAt) this.finish();
+    for (const it of ITEMS) { const b = this.itemBtns[it]; b.enabled = app.profile.items[it] > 0; b.style = this.mode === it ? 'blue' : 'cream'; }
+  }
+  scaleOf(key) {
+    const a = this.anims.get(key); if (!a) return 1;
+    const t = this.t - a[1]; if (t < 0) return 0;
+    if (a[0] === 'spawn') { if (t >= .28) { this.anims.delete(key); return 1; } const x = t / .28; return 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2; }
+    if (t >= .32) { this.anims.delete(key); return 1; }
+    return 1 + .28 * Math.sin(Math.PI * t / .32) * (1 - t / .32);
+  }
+  block(g, lv, x, y, size, alpha = 1) {
+    if (size <= 0) return;
+    if (alpha < 1) g.globalAlpha = alpha;
+    g.drawImage(app.block(lv), x - size / 2, y - size / 2, size, size);
+    if (alpha < 1) g.globalAlpha = 1;
+  }
+  draw(g, dt) {
+    const run = this.run, L = this.L, p = app.portrait, m = app.mouse;
+    T(g, TH.name, L.title[0], L.title[1], { size: L.title[2] * (TH.name.length > 18 ? .82 : 1), kind: 'title', color: [255, 250, 240], outline: C.titleOl, ow: 5 });
+    this.fx.draw(g);
+    g.drawImage(this.boardImg, L.bx - 20, L.by - 20, L.size + 40, L.size + 40);
+    const hover = m.has ? this.cellAt(m) : null, pulse = .5 + .5 * Math.sin(this.t * 6);
+    if (this.selected && !this.mode) for (const c of run.partners(this.selected)) {
+      const [x, y, w, h] = this.cellRect(...c);
+      g.beginPath(); g.roundRect(x - 7, y - 7, w + 14, h + 14, 30); g.lineWidth = 8; g.strokeStyle = `rgba(255,240,120,${(120 + 100 * pulse) / 255})`; g.stroke();
+    }
+    if (this.mode === 'blueprint') for (const c of run.empties()) {
+      const [x, y, w, h] = this.cellRect(...c), on = this.same(c, hover);
+      rr(g, `rgba(120,180,255,${on ? .6 : (50 + 40 * pulse) / 255})`, x, y, w, h, 26, 0);
+      if (on) this.block(g, run.next, x + w / 2, y + h / 2, L.cell * .9, .55);
+    }
+    const dragCell = this.dragging && this.press ? this.press.cell : null;
+    // blocked tiles: painted lock art, the cracked version once it has been hit
+    const lk = D().lock;
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+      const hp = run.locks[r][c]; if (!hp) continue;
+      const [x, y, w, h] = this.cellRect(r, c), sc = this.scaleOf(16 + r * 4 + c), ham = this.mode === 'hammer' && this.same(hover, [r, c]);
+      const pic = (lk && hp < lk.hp && themeImg('lock_hit')) || themeImg('lock');
+      const sz = L.cell * .96 * sc, cx = x + w / 2 + (ham ? (Math.random() - .5) * 4 : 0);
+      if (pic) g.drawImage(pic, cx - sz / 2, y + h / 2 - sz / 2, sz, sz); else rr(g, 'rgba(40,40,50,0.55)', x + 6, y + 6, w - 12, h - 12, 22, 0);
+      if (hp > 1) T(g, String(hp), x + w - 16, y + 18, { size: 22, kind: 'num', outline: OLc, ow: 3 });
+      if (ham) { rr(g, 'rgba(255,60,80,0.35)', x, y, w, h, 26, 0); g.drawImage(app.itemIcon('hammer'), x + w - 54, y - 10, 44, 44); }
+    }
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+      const lv = run.board[r][c]; if (!lv) continue;
+      const [x, y, w, h] = this.cellRect(r, c); let cx = x + w / 2, cy = y + h / 2;
+      if (this.same(dragCell, [r, c])) { this.block(g, lv, cx, cy, L.cell, .35); continue; }
+      const sc = this.scaleOf(r * 4 + c), sel = this.same(this.selected, [r, c]), ham = this.mode === 'hammer' && this.same(hover, [r, c]);
+      if (sel && !this.dragging) cy -= 6 + 3 * pulse;
+      if (ham) cx += (Math.random() - .5) * 4;
+      this.block(g, lv, cx, cy, L.cell * sc);
+      if (ham) { rr(g, 'rgba(255,60,80,0.35)', x, y, w, h, 26, 0); g.drawImage(app.itemIcon('hammer'), x + w - 54, y - 10, 44, 44); }
+      if (sel) { g.beginPath(); g.roundRect(x - 4, y - 4 - (this.dragging ? 0 : 6 + 3 * pulse), w + 8, h + 8, 28); g.lineWidth = 4; g.strokeStyle = '#fff'; g.stroke(); }
+    }
+    if (this.mode === 'hammer' && !m.has) for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) if (run.board[r][c] || run.locks[r][c]) {
+      const [x, y, w, h] = this.cellRect(r, c); rr(g, `rgba(255,60,80,${.12 + .12 * pulse})`, x, y, w, h, 26, 0);
+    }
+    if (dragCell) this.block(g, run.at(dragCell), this.drag.x, this.drag.y - 8, L.cell * 1.08);
+    this.parts.draw(g);
+    this.drawScore(g, L.score, p); this.drawGoal(g, L.goal);
+    if (!p) { this.drawBest(g, L.best); this.drawDeco(g, L.deco); }
+    this.drawNext(g, L.next);
+    this.plantBtn.draw(g, dt);
+    for (const it of ITEMS) {
+      const b = this.itemBtns[it], [x, y, w, h] = b.rect, n = app.profile.items[it];
+      b.draw(g, dt);
+      circ(g, OLc, x + w - 8, y + 8, 19, 0); circ(g, n ? C.accentDark : [170, 160, 160], x + w - 8, y + 8, 16, 0);
+      T(g, String(n), x + w - 8, y + 9, { size: n < 100 ? 20 : 15, kind: 'num', outline: null });
+      T(g, ITEM_SHORT[it], x + w / 2, y + h + 16, { size: 18, ow: 2 });
+    }
+    this.drawTip(g, p);
+    this.pauseBtn.draw(g, dt); this.soundBtn.draw(g, dt); this.themeBtn.draw(g, dt);
+    this.drawToasts(g);
+    if (this.overlay === 'pause') this.drawPause(g, dt);
+    else if (this.overlay === 'results') this.drawResults(g, dt);
+  }
+  drawScore(g, [x, y, w, h], withBest) {
+    panel(g, x, y, w, h); ribbon(g, x + w / 2, y, 'SCORE', 170);
+    T(g, fmt(this.run.score), x + w / 2, y + (withBest ? 62 : 72), { size: 46, kind: 'num', color: C.accent, ow: 3 });
+    if (withBest) T(g, 'Best ' + fmt(Math.max(app.profile.best_score, this.run.score)), x + w / 2, y + 104, { size: 20, color: C.ink, outline: null, kind: 'body' });
+  }
+  drawBest(g, [x, y, w, h]) {
+    panel(g, x, y, w, h, C.panelAlt);
+    T(g, 'Best', x + 22, y + h / 2, { size: 24, color: C.ink, outline: null, align: 'left' });
+    T(g, fmt(Math.max(app.profile.best_score, this.run.score)), x + w - 22, y + h / 2, { size: 28, color: C.ink, outline: null, kind: 'num', align: 'right' });
+  }
+  drawGoal(g, [x, y, w, h]) {
+    const run = this.run; panel(g, x, y, w, h);
+    if (run.milestone >= MILESTONES.length) { T(g, 'All goals complete!', x + w / 2, y + h / 2, { size: 24, color: C.accentDark, outline: null }); return; }
+    const [goal, reward] = MILESTONES[run.milestone], prev = run.milestone ? MILESTONES[run.milestone - 1][0] : 0;
+    T(g, `Goal ${run.milestone + 1}/${MILESTONES.length}`, x + 20, y + 28, { size: 22, color: C.ink, outline: null, align: 'left' });
+    T(g, fmt(goal), x + w - 20, y + 28, { size: 24, color: C.accentDark, outline: null, kind: 'num', align: 'right' });
+    const bx = x + 20, by = y + 50, bw = w - 40, k = clamp((run.score - prev) / Math.max(1, goal - prev), 0, 1);
+    rr(g, OLc, bx - 2, by - 2, bw + 4, 28, 14, 0); rr(g, shade(C.panelAlt, -.08), bx, by, bw, 24, 12, 0);
+    if (k > 0) { rr(g, C.accent, bx, by, Math.max(24, bw * k), 24, 12, 0); rr(g, shade(C.accent, .35), bx + 6, by + 4, Math.max(12, bw * k - 12), 6, 3, 0); }
+    const ry = y + h - 28;
+    T(g, 'Reward:', x + 20, ry, { size: 20, color: C.ink, outline: null, align: 'left' });
+    let ix = x + 106;
+    for (const [kname, v] of Object.entries(reward)) {
+      g.drawImage(app.itemIcon(kname), ix, ry - 18, 36, 36);
+      T(g, 'x' + v, ix + 40, ry, { size: 20, color: C.ink, outline: null, kind: 'num', align: 'left' }); ix += 74;
+    }
+  }
+  drawDeco(g, [x, y, w, h]) {
+    const run = this.run; panel(g, x, y, w, h, C.panelAlt);
+    T(g, 'Best Decoration', x + w / 2, y + 22, { size: 20, color: C.ink, outline: null });
+    if (!run.highest) { T(g, 'Plant something!', x + w / 2, y + 90, { size: 22, color: C.ink, outline: null }); return; }
+    this.block(g, run.highest, x + 64, y + 90, 92);
+    T(g, 'Lv. ' + run.highest, x + 124, y + 74, { size: 26, kind: 'num', color: C.accent, ow: 2, align: 'left' });
+    const nm = TH.names[run.highest];
+    T(g, nm, x + 124, y + 108, { size: fit(g, nm, 21, w - 136), color: C.ink, outline: null, kind: 'body', align: 'left' });
+    T(g, `+${SEALS[run.highest]} seals`, x + 124, y + 132, { size: 17, color: C.seal, outline: null, kind: 'body', align: 'left' });
+  }
+  drawNext(g, [x, y, w, h]) {
+    panel(g, x, y, w, h); ribbon(g, x + w / 2, y, 'NEXT', 150, C.good);
+    const t = this.t - this.nextAnim; let sc = 1;
+    if (this.nextAnim >= 0 && t < .3) { const k = t / .3; sc = 1 + 2.70158 * (k - 1) ** 3 + 1.70158 * (k - 1) ** 2; }
+    const size = Math.min(w, h) * .55, cy = y + h * .5 + Math.sin(this.t * 2.5) * 4;
+    glow(g, x + w / 2, cy, size * .8, [255, 250, 200], 140);
+    this.block(g, this.run.next, x + w / 2, cy, size * sc);
+    T(g, TH.names[this.run.next], x + w / 2, y + h - 24, { size: fit(g, TH.names[this.run.next], 20, w - 24), color: C.ink, outline: null, kind: 'body' });
+  }
+  drawTip(g, portrait) {
+    if (portrait) {
+      const [x, y, w, h] = this.L.tip;
+      T(g, this.tip, x + w / 2, y + h / 2, { size: this.tip.length > 52 ? 20 : 23, ow: 3, outline: [80, 130, 60] });
+      return;
+    }
+    const gy = 610 + Math.sin(this.t * 2) * 3;
+    g.drawImage(app.mascot(), 946, gy, 96, 96);
+    const [x, y, w, h] = this.L.bubble;
+    rr(g, OLc, x - 2, y - 2, w + 4, h + 4, 18, 0); rr(g, C.panel, x, y, w, h, 16, 0);
+    poly(g, C.panel, [[x + 2, y + 30], [x - 14, y + 44], [x + 2, y + 50]], 0);
+    const lines = wrapLines(g, this.tip, w - 16, 17), lh = 21;
+    lines.forEach((ln, i) => T(g, ln, x + w / 2, y + h / 2 - (lines.length - 1) * lh / 2 + i * lh, { size: 17, color: C.ink, outline: null, kind: 'body' }));
+  }
+  drawToasts(g) {
+    let y = this.L.by + 8;
+    for (const s of this.toasts) {
+      const a = Math.min(1, s.t * 5) * Math.min(1, (3.2 - s.t) * 3), size = 22;
+      const tw = Math.min(textW(g, s.txt, size), W - 120), bw = tw + 40, bh = 44, yy = y - 20 + 20 * Math.min(1, s.t * 5);
+      g.globalAlpha = clamp(a, 0, 1);
+      rr(g, OLc, W / 2 - bw / 2, yy - bh / 2, bw, bh, 22, 0); rr(g, s.c, W / 2 - bw / 2 + 3, yy - bh / 2 + 3, bw - 6, bh - 6, 20, 0);
+      g.save(); g.beginPath(); g.rect(W / 2 - tw / 2, yy - bh / 2, tw, bh); g.clip();
+      T(g, s.txt, W / 2, yy, { size, outline: shade(s.c, -.5), ow: 3 }); g.restore();
+      g.globalAlpha = 1; y += bh + 8;
+    }
+  }
+  drawPause(g, dt) {
+    dim(g, .6);
+    const x = W / 2 - 220, y = H / 2 - 190; panel(g, x, y, 440, 420); ribbon(g, W / 2, y, 'PAUSED', 220);
+    for (const b of this.pauseBtns) b.draw(g, dt);
+    T(g, 'Retry ends this garden and collects rewards.', W / 2, y + 420 - 30, { size: 17, color: C.inkSoft, outline: null, kind: 'body' });
+  }
+  drawResults(g, dt) {
+    const run = this.run, res = this.results, t = this.t - res.t;
+    dim(g, Math.min(.62, t * 1.6));
+    const x = W / 2 - 280, y = H / 2 - 250 + Math.max(0, 1 - t * 4) * 300, w = 560;
+    panel(g, x, y, w, 500); ribbon(g, W / 2, y, 'Garden Complete!', 340, C.gold, 30);
+    if (run.highest) {
+      glow(g, W / 2, y + 140, 120, [255, 245, 180], 180); this.block(g, run.highest, W / 2, y + 140, 136);
+      T(g, `${TH.names[run.highest]}  (Lv. ${run.highest})`, W / 2, y + 230, { size: fit(g, `${TH.names[run.highest]}  (Lv. ${run.highest})`, 26, 500, 'ui'), color: C.ink, outline: null });
+    }
+    T(g, 'Score', W / 2, y + 275, { size: 24, color: C.ink, outline: null });
+    T(g, fmt(run.score), W / 2, y + 318, { size: 48, kind: 'num', color: C.accent, ow: 3 });
+    if (res.newBest) T(g, 'NEW BEST!', W / 2 + 190, y + 300, { size: 26, color: [255, 230, 90], ow: 3 });
+    g.drawImage(app.icons.seal, W / 2 - 230, y + 352, 36, 36);
+    T(g, `+${res.seals} Seals`, W / 2 - 188, y + 370, { size: 24, color: C.seal, outline: null, align: 'left' });
+    g.drawImage(app.pointIcon(), W / 2 + 30, y + 352, 36, 36);
+    T(g, `+${fmt(res.points)} Points`, W / 2 + 72, y + 370, { size: 24, color: C.accentDark, outline: null, align: 'left' });
+    this.resultBtns[0].at(W / 2 - 230, y + 410, 210, 62); this.resultBtns[1].at(W / 2 + 20, y + 410, 210, 62);
+    for (const b of this.resultBtns) b.draw(g, dt);
+  }
+}
+
+function stamp() {
+  const d = new Date(), z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
+}
+
+class SlotScene extends Scene {
+  constructor(mode, back) {
+    super(); this.mode = mode; this.back = back; this.msg = ''; this.msgT = 0;
+    this.backBtn = new Button('Back', () => this.goBack(), 'cream', 32);
+    this.slotBtns = [0, 1, 2].map(i => new Button(mode === 'save' ? 'Save Here' : 'Load', () => this.pick(i), mode === 'save' ? 'blue' : 'green', 30));
+    this.buttons = [this.backBtn, ...this.slotBtns];
+    this.refresh(); this.layout();
+  }
+  layout() {
+    const p = app.portrait;
+    this.panel = p ? [30, 150, 660, 760] : [200, 90, 880, 500];
+    this.rows = [0, 1, 2].map(i => p ? [60, 220 + i * 220, 600, 190] : [240, 150 + i * 140, 800, 110]);
+    this.slotBtns.forEach((b, i) => { const [x, y, w, h] = this.rows[i]; p ? b.at(x + w - 200, y + h - 76, 180, 60) : b.at(x + w - 210, y + h / 2 - 31, 180, 62); });
+    this.backBtn.at(W / 2 - 120, p ? 960 : 620, 240, 62);
+  }
+  bg() { return 'game'; }
+  refresh() {
+    this.data = [1, 2, 3].map(i => Store.get('slot' + i));
+    if (this.mode === 'load') this.slotBtns.forEach((b, i) => { b.enabled = !!this.data[i]; });
+  }
+  goBack() { if (this.back.refresh) this.back.refresh(); app.switch(this.back); }
+  pick(i) {
+    if (this.mode === 'save') {
+      Store.set('slot' + (i + 1), { run: this.back.run.toDict(), time: stamp() });
+      Ach.bump('slotSaves'); Ach.commit();
+      this.refresh(); this.msg = `Saved to slot ${i + 1}!`; this.msgT = 2; Snd.play('coin');
+    } else if (this.data[i]) { Ach.bump('loads'); Ach.commit(); app.switch(new GameScene(new Run(this.data[i].run))); }
+  }
+  handle(ev) { if (ev.type === 'key' && ev.key === 'Escape') { this.goBack(); return true; } return super.handle(ev); }
+  update(dt) { this.msgT -= dt; }
+  draw(g, dt) {
+    const [px, py, pw, ph] = this.panel, p = app.portrait;
+    panel(g, px, py, pw, ph); ribbon(g, px + pw / 2, py, this.mode === 'save' ? 'Save Game' : 'Load Game', 280);
+    this.data.forEach((d, i) => {
+      const [x, y, w, h] = this.rows[i];
+      rr(g, OLc, x - 2, y - 2, w + 4, h + 4, 20, 0); rr(g, C.panelAlt, x, y, w, h, 18, 0);
+      T(g, 'Slot ' + (i + 1), x + 24, y + 34, { size: 30, color: C.accentDark, outline: null, align: 'left' });
+      if (d) {
+        const run = new Run(d.run), tx = x + (p ? 250 : 254);
+        if (run.highest) g.drawImage(app.block(run.highest), x + 150, y + 12, 84, 84);
+        T(g, 'Score ' + fmt(run.score), tx, y + 30, { size: 26, color: C.ink, outline: null, kind: 'body', align: 'left' });
+        T(g, TH.names[run.highest] || '-', tx, y + 62, { size: 19, color: C.inkSoft, outline: null, kind: 'body', align: 'left' });
+        T(g, 'Saved ' + (d.time || ''), tx, y + 88, { size: 16, color: [170, 140, 110], outline: null, kind: 'body', align: 'left' });
+        for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) { const lv = run.board[r][c]; rr(g, lv ? C.tiers[lv] : [200, 190, 170], x + 24 + c * 11, y + 60 + r * 11, 9, 9, 2, 0); }
+      } else T(g, '- Empty -', x + 254, y + (p ? 70 : 55), { size: 26, color: [180, 160, 140], outline: null, align: 'left' });
+    });
+    for (const b of this.buttons) b.draw(g, dt);
+    if (this.msgT > 0) T(g, this.msg, W / 2, py + ph - 26, { size: 30, outline: [80, 150, 70], ow: 3 });
+  }
+}
+
+class CollectionScene extends Scene {
+  constructor(back) {
+    super(); this.back = back;
+    this.backBtn = new Button('Back', () => app.switch(back), 'cream', 32); this.buttons = [this.backBtn];
+    this.layout();
+  }
+  layout() {
+    const p = app.portrait;
+    this.panel = p ? [30, 120, 660, 1010] : [60, 70, W - 120, 540];
+    this.grid = p ? { cols: 3, cw: 196, ch: 232, x0: 50, y0: 168, gx: 16, gy: 14 } : { cols: 6, cw: 180, ch: 236, x0: 90, y0: 110, gx: 13, gy: 12 };
+    this.backBtn.at(W / 2 - 120, p ? 1170 : 630, 240, 62);
+  }
+  bg() { return 'game'; }
+  handle(ev) { if (ev.type === 'key' && ev.key === 'Escape') { app.switch(this.back); return true; } return super.handle(ev); }
+  draw(g, dt) {
+    const pr = app.profile, [px, py, pw, ph] = this.panel, G = this.grid;
+    panel(g, px, py, pw, ph);
+    const have = [...pr.collection].filter(v => v >= 1 && v <= 12).length;
+    ribbon(g, px + pw / 2, py, `Garden Collection  ${have}/12`, 380);
+    for (let i = 0; i < MAX_LEVEL; i++) {
+      const lv = i + 1, x = G.x0 + (i % G.cols) * (G.cw + G.gx), y = G.y0 + Math.floor(i / G.cols) * (G.ch + G.gy), got = pr.collection.has(lv);
+      rr(g, OLc, x - 2, y - 2, G.cw + 4, G.ch + 4, 18, 0); rr(g, got ? C.panelAlt : [226, 216, 204], x, y, G.cw, G.ch, 16, 0);
+      g.drawImage(got ? app.block(lv) : app.locked(lv), x + G.cw / 2 - 62, y + 20, 124, 124);
+      const nm = got ? TH.names[lv] : '???';
+      T(g, nm, x + G.cw / 2, y + 166, { size: fit(g, nm, 20, G.cw - 16), color: C.ink, outline: null, kind: 'body' });
+      T(g, 'Lv. ' + lv, x + G.cw / 2, y + 192, { size: 18, color: C.accentDark, outline: null });
+      T(g, fmt(POINTS[lv]) + ' pts', x + G.cw / 2, y + 214, { size: 16, color: C.inkSoft, outline: null, kind: 'body' });
+    }
+    this.backBtn.draw(g, dt);
+  }
+}
+
+class AchievementScene extends Scene {
+  constructor(back) {
+    super(); this.back = back; this.page = 0;
+    this.backBtn = new Button('Back', () => app.switch(back), 'cream', 32);
+    this.prevBtn = new Button('<', () => this.turn(-1), 'blue', 34, { hotkey: 'ArrowLeft' });
+    this.nextBtn = new Button('>', () => this.turn(1), 'blue', 34, { hotkey: 'ArrowRight' });
+    this.buttons = [this.backBtn, this.prevBtn, this.nextBtn];
+    this.layout();
+  }
+  layout() {
+    const p = app.portrait;
+    this.panel = p ? [30, 120, 660, 1010] : [60, 70, W - 120, 540];
+    this.cols = p ? 1 : 2; this.rows = p ? 8 : 5;
+    this.card = p ? { x0: 56, y0: 176, w: 608, h: 106, gx: 0, gy: 12 } : { x0: 86, y0: 116, w: 540, h: 86, gx: 28, gy: 10 };
+    this.pages = Math.ceil(ACH.length / (this.cols * this.rows)); this.page = Math.min(this.page, this.pages - 1);
+    const by = p ? 1170 : 630;
+    this.backBtn.at(W / 2 - 120, by, 240, 62); this.prevBtn.at(W / 2 - 330, by, 90, 62); this.nextBtn.at(W / 2 + 240, by, 90, 62);
+  }
+  bg() { return 'game'; }
+  turn(d) { this.page = (this.page + d + this.pages) % this.pages; Snd.play('click'); }
+  handle(ev) { if (ev.type === 'key' && ev.key === 'Escape') { app.switch(this.back); return true; } return super.handle(ev); }
+  draw(g, dt) {
+    const pr = app.profile, [px, py, pw, ph] = this.panel, K = this.card, per = this.cols * this.rows;
+    panel(g, px, py, pw, ph);
+    ribbon(g, px + pw / 2, py, `Achievements  ${pr.ach.size}/${ACH.length}`, 400, C.gold);
+    ACH.slice(this.page * per, (this.page + 1) * per).forEach((a, i) => {
+      const x = K.x0 + (i % this.cols) * (K.w + K.gx), y = K.y0 + Math.floor(i / this.cols) * (K.h + K.gy), got = pr.ach.has(a.id);
+      rr(g, OLc, x - 2, y - 2, K.w + 4, K.h + 4, 16, 0); rr(g, got ? C.panelAlt : shade(C.panel, -.06), x, y, K.w, K.h, 14, 0);
+      const is = K.h - 22;
+      g.drawImage(app.icons[got ? 'trophy' : 'trophy_off'], x + 10, y + 11, is, is);
+      const tx = x + is + 22, tw = K.w - is - 34, r = TIER_REWARD[a.tier];
+      T(g, a.name, tx, y + 20, { size: fit(g, a.name, 22, tw - 130, 'ui'), color: got ? C.ink : C.inkSoft, outline: null, align: 'left' });
+      for (let k = 0; k < a.tier; k++) poly(g, got ? C.gold : shade(C.inkSoft, .3), starPts(x + K.w - 20 - k * 20, y + 20, 9, 4), 0);
+      T(g, a.desc, tx, y + 46, { size: fit(g, a.desc, 17, tw), color: C.inkSoft, outline: null, kind: 'body', align: 'left' });
+      const v = Math.min(a.val(pr), a.goal), bw = tw - 150, bx = tx, byy = y + K.h - 22;
+      rr(g, shade(C.panel, -.15), bx, byy, bw, 12, 6, 0);
+      if (v > 0) rr(g, got ? C.good : C.accent, bx, byy, Math.max(12, bw * v / a.goal), 12, 6, 0);
+      T(g, got ? 'Done!' : `${fmt(v)}/${fmt(a.goal)}`, bx + bw + 8, byy + 6, { size: 14, color: got ? C.good : C.inkSoft, outline: null, kind: 'body', align: 'left' });
+      T(g, `+${r.seals}` + (r.points ? ` +${r.points}p` : ''), x + K.w - 12, byy + 6, { size: 14, color: C.seal, outline: null, kind: 'body', align: 'right' });
+    });
+    T(g, `Page ${this.page + 1}/${this.pages}`, px + pw - 24, py + 24, { size: 16, color: C.ink, outline: null, kind: 'body', align: 'right' });
+    for (const b of this.buttons) b.draw(g, dt);
+  }
+}
+
+class ShopScene extends Scene {
+  constructor(back) {
+    super(); this.back = back; this.flash = {};
+    this.backBtn = new Button('Back', () => app.switch(back), 'cream', 32);
+    this.buyBtns = {};
+    for (const it of ITEMS) this.buyBtns[it] = new Button(String(PRICES[it]), () => this.buy(it), 'gold', 30, { icon: app.icons.seal });
+    this.buttons = [this.backBtn, ...Object.values(this.buyBtns)];
+    this.layout();
+  }
+  layout() {
+    const p = app.portrait;
+    this.panel = p ? [30, 120, 660, 1010] : [100, 90, W - 200, 510];
+    this.cards = ITEMS.map((_, i) => p ? [60, 190 + i * 305, 600, 280] : [150 + i * 340, 150, 320, 400]);
+    ITEMS.forEach((it, i) => { const [x, y, w, h] = this.cards[i]; p ? this.buyBtns[it].at(x + w - 220, y + h - 82, 200, 62) : this.buyBtns[it].at(x + w / 2 - 100, y + 320, 200, 62); });
+    this.backBtn.at(W / 2 - 120, p ? 1170 : 630, 240, 62);
+  }
+  bg() { return 'game'; }
+  buy(it) {
+    const p = app.profile;
+    if (p.seals >= PRICES[it]) {
+      p.seals -= PRICES[it]; p.items[it]++; Ach.bump('bought'); Ach.bump('sealsSpent', PRICES[it]); Ach.commit();
+      this.flash[it] = .6; Snd.play('coin');
+    }
+  }
+  handle(ev) { if (ev.type === 'key' && ev.key === 'Escape') { app.switch(this.back); return true; } return super.handle(ev); }
+  update(dt) {
+    for (const k in this.flash) { this.flash[k] -= dt; if (this.flash[k] <= 0) delete this.flash[k]; }
+    for (const it of ITEMS) this.buyBtns[it].enabled = app.profile.seals >= PRICES[it];
+  }
+  draw(g, dt) {
+    const pr = app.profile, [px, py, pw, ph] = this.panel, p = app.portrait;
+    panel(g, px, py, pw, ph); ribbon(g, px + pw / 2, py, 'Secret Garden Shop', 340, C.gold);
+    g.drawImage(app.icons.seal, px + pw - 130, py + 14, 40, 40);
+    T(g, fmt(pr.seals), px + pw - 84, py + 34, { size: 28, color: C.seal, outline: null, kind: 'num', align: 'left' });
+    ITEMS.forEach((it, i) => {
+      const [x, y, w, h] = this.cards[i], sc = 1 + .15 * (this.flash[it] || 0);
+      rr(g, OLc, x - 2, y - 2, w + 4, h + 4, 22, 0); rr(g, C.panelAlt, x, y, w, h, 20, 0);
+      const icx = p ? x + 100 : x + w / 2, icy = p ? y + h / 2 : y + 100, is = 120 * sc;
+      glow(g, icx, icy, 90, [255, 250, 210], 120); g.drawImage(app.itemIcon(it, true), icx - is / 2, icy - is / 2, is, is);
+      const tx = p ? x + 200 : x + w / 2, al = p ? 'left' : 'center';
+      T(g, TH.items[it], tx, p ? y + 44 : y + 190, { size: 28, color: C.ink, outline: null, align: al });
+      wrapLines(g, ITEM_DESC[it], p ? 370 : 270, 18).forEach((ln, k) => T(g, ln, tx, (p ? y + 86 : y + 232) + k * 24, { size: 18, color: C.inkSoft, outline: null, kind: 'body', align: al }));
+      T(g, 'Owned: ' + pr.items[it], tx, p ? y + h - 52 : y + 290, { size: 22, color: C.accentDark, outline: null, kind: 'body', align: al });
+    });
+    for (const b of this.buttons) b.draw(g, dt);
+  }
+}
+
+class PointShopScene extends Scene {
+  constructor(back) {
+    super(); this.back = back; this.flash = {}; this.msg = ''; this.msgT = 0;
+    for (const id of THEME_LIST) { loadImg(`${id}/menu_land`, `themes/${id}/menu_land.jpg`); loadImg(`${id}/mascot`, `themes/${id}/mascot.png`); }
+    this.backBtn = new Button('Back', () => app.switch(back), 'cream', 32);
+    this.cardBtns = {};
+    for (const id of THEME_LIST) this.cardBtns[id] = new Button('', () => this.act(id), 'gold', 26);
+    // four themes per page
+    this.page = Math.floor(Math.max(0, THEME_LIST.indexOf(app.profile.theme)) / 4); this.pages = Math.ceil(THEME_LIST.length / 4);
+    this.prevBtn = new Button('<', () => this.turn(-1), 'blue', 34, { hotkey: 'ArrowLeft' });
+    this.nextBtn = new Button('>', () => this.turn(1), 'blue', 34, { hotkey: 'ArrowRight' });
+    this.buttons = [this.backBtn, this.prevBtn, this.nextBtn, ...Object.values(this.cardBtns)];
+    this.layout();
+  }
+  shown() { return THEME_LIST.slice(this.page * 4, this.page * 4 + 4); }
+  turn(d) { this.page = (this.page + d + this.pages) % this.pages; this.layout(); }
+  layout() {
+    const p = app.portrait, by = p ? 1170 : 630;
+    this.panel = p ? [30, 120, 660, 1010] : [60, 70, W - 120, 540];
+    this.cards = {};
+    for (const id of THEME_LIST) this.cardBtns[id].visible = false;
+    this.shown().forEach((id, i) => {
+      const r = this.cards[id] = p ? [50 + (i % 2) * 320, 168 + Math.floor(i / 2) * 488, 300, 470] : [90 + i * 282, 118, 262, 446];
+      this.cardBtns[id].visible = true; this.cardBtns[id].at(r[0] + 20, r[1] + r[3] - 76, r[2] - 40, 58);
+    });
+    this.backBtn.at(W / 2 - 120, by, 240, 62); this.prevBtn.at(W / 2 - 330, by, 90, 62); this.nextBtn.at(W / 2 + 240, by, 90, 62);
+  }
+  bg() { return 'game'; }
+  act(id) {
+    const p = app.profile, t = THEMES[id];
+    if (p.themes.has(id)) {
+      p.theme = id; p.save(); app.setTheme(id); Snd.play('blueprint');
+      this.msg = `${t.name} equipped!`; this.msgT = 2;
+    } else if (p.points >= t.price) {
+      p.points -= t.price; p.themes.add(id); Ach.commit(); this.flash[id] = .6; Snd.play('coin');
+      this.msg = `Unlocked ${t.name}! Tap Equip to use it.`; this.msgT = 2.5;
+    }
+  }
+  handle(ev) { if (ev.type === 'key' && ev.key === 'Escape') { app.switch(this.back); return true; } return super.handle(ev); }
+  update(dt) {
+    this.msgT -= dt;
+    for (const k in this.flash) { this.flash[k] -= dt; if (this.flash[k] <= 0) delete this.flash[k]; }
+    const p = app.profile;
+    for (const id of THEME_LIST) {
+      const b = this.cardBtns[id], own = p.themes.has(id), on = p.theme === id;
+      b.text = on ? 'Equipped' : own ? 'Equip' : fmt(THEMES[id].price);
+      b.icon = own ? null : () => app.pointIcon();
+      b.style = on ? 'gray' : own ? 'green' : 'gold';
+      b.enabled = !on && (own || p.points >= THEMES[id].price);
+    }
+  }
+  draw(g, dt) {
+    const pr = app.profile, [px, py, pw, ph] = this.panel;
+    panel(g, px, py, pw, ph); ribbon(g, px + pw / 2, py, 'Point Shop', 280, C.blue);
+    g.drawImage(app.pointIcon(), px + pw - 150, py + 14, 40, 40);
+    T(g, fmt(pr.points), px + pw - 104, py + 34, { size: 28, color: C.accentDark, outline: null, kind: 'num', align: 'left' });
+    T(g, `Page ${this.page + 1}/${this.pages}`, px + 24, py + 30, { size: 16, color: C.ink, outline: null, kind: 'body', align: 'left' });
+    this.shown().forEach(id => {
+      const t = THEMES[id], [x, y, w, h] = this.cards[id], sc = 1 + .04 * (this.flash[id] || 0), on = pr.theme === id;
+      rr(g, on ? t.c.accent : OLc, x - 3, y - 3, w + 6, h + 6, 22, 0); rr(g, t.c.panelAlt, x, y, w, h, 20, 0);
+      const ix = x + 12, iy = y + 12, iw = w - 24, ih = Math.round(iw * .56);
+      g.save(); g.beginPath(); g.roundRect(ix, iy, iw, ih, 14); g.clip();
+      const pic = themeImg('menu_land', id);
+      if (pic) { const k = Math.max(iw / pic.width, ih / pic.height) * sc; g.drawImage(pic, ix + iw / 2 - pic.width * k / 2, iy + ih / 2 - pic.height * k / 2, pic.width * k, pic.height * k); }
+      else { const gr = g.createLinearGradient(0, iy, 0, iy + ih); gr.addColorStop(0, col(t.c.sky[0])); gr.addColorStop(1, col(t.c.sky[1])); g.fillStyle = gr; g.fillRect(ix, iy, iw, ih); }
+      const m = themeImg('mascot', id); if (m) g.drawImage(m, ix + iw - 74, iy + ih - 78, 72, 72);
+      g.restore();
+      g.beginPath(); g.roundRect(ix, iy, iw, ih, 14); g.lineWidth = 3; g.strokeStyle = OL; g.stroke();
+      const ty = iy + ih + 30;
+      T(g, t.name, x + w / 2, ty, { size: fit(g, t.name, 23, w - 24, 'ui'), color: t.c.ink, outline: null });
+      // difficulty: filled dots out of 5, and the score bonus
+      const df = t.diff || BASE_DIFF, dy = y + h - 128;
+      T(g, 'Difficulty', x + 18, dy, { size: 15, color: t.c.inkSoft, outline: null, kind: 'body', align: 'left' });
+      for (let k = 0; k < 5; k++) circ(g, k < df.stars ? t.c.accent : t.c.cellLow, x + 104 + k * 17, dy, 6, 1.5);
+      if (df.mul > 1) T(g, `Score x${df.mul}`, x + w - 16, dy, { size: 15, color: t.c.ink, outline: null, kind: 'body', align: 'right' });
+      wrapLines(g, t.blurb, w - 36, 16).slice(0, 4).forEach((ln, k) => T(g, ln, x + w / 2, ty + 32 + k * 21, { size: 16, color: t.c.inkSoft, outline: null, kind: 'body' }));
+      for (let k = 0; k < 5; k++) circ(g, t.c.tiers ? t.c.tiers[k * 2 + 1] : hex(t.tiers[k * 2]), x + w / 2 - 48 + k * 24, y + h - 100, 9, 2);
+      if (on) T(g, 'In use', x + w - 44, iy + 18, { size: 16, outline: t.c.accentDark, ow: 3 });
+    });
+    for (const b of this.buttons) b.draw(g, dt);
+    if (this.msgT > 0) T(g, this.msg, W / 2, py + ph + (app.portrait ? 22 : 6), { size: 24, outline: C.titleOl, ow: 3 });
+  }
+}
+
+// ============================================================== app
+const app = {
+  cv: document.getElementById('c'), mouse: { x: 0, y: 0, has: false }, lastPointer: 'mouse',
+  portrait: false, DW: 1280, DH: 720, ox: 0, oy: 0, scale: 1, dpr: 1, q: 2, bgs: {}, blocks: {}, lockedBlocks: {},
+  bootT: performance.now(),
+  // Wait for the cloud copy before Start/Continue unlock (slow mobile links), so a new game never overwrites it.
+  loadingSaves() { return !Store.settled && performance.now() - this.bootT < 12000; },
+  block(lv) { return this.blocks[lv] || (this.blocks[lv] = makeBlock(lv)); },
+  locked(lv) { return this.lockedBlocks[lv] || (this.lockedBlocks[lv] = makeBlock(lv, true)); },
+  mascot() { return themeImg('mascot') || this.gnome; },
+  itemIcon(it, big) { return themeImg('item_' + it) || this.icons[big ? it + '_big' : it]; },
+  pointIcon() { return themeImg('point', 'shared') || this.icons.point; },
+  // Drop every cached picture built from the theme so it is redrawn with the new art and colors.
+  invalidate() {
+    this.blocks = {}; this.lockedBlocks = {}; this.bgs = {};
+    if (this.scene) { this.scene.layout(); if (this.scene.back && this.scene.back.layout) this.scene.back.layout(); }
+  },
+  setTheme(id) { applyTheme(id); this.invalidate(); },
+  init() {
+    this.g = this.cv.getContext('2d');
+    Store.init(); this.profile = new Profile(); Snd.setOn(this.profile.sound);
+    applyTheme(this.profile.theme);
+    loadImg('shared/point', 'themes/shared/point.png', () => this.invalidate());
+    this.gnome = makeGnome(192);
+    this.icons = { seal: makeIcon('seal', 96), pause: makeIcon('pause', 112), music: makeIcon('music', 112), mute: makeIcon('mute', 112),
+      book: makeIcon('book', 128), shop: makeIcon('shop', 128), point: makeIcon('point', 96),
+      trophy: makeIcon('trophy', 128), trophy_off: makeIcon('trophy_off', 128) };
+    for (const it of ITEMS) { this.icons[it] = makeIcon(it, 128); this.icons[it + '_big'] = makeIcon(it, 240); }
+    this.measure();
+    this.scene = new MenuScene();
+    this.bindInput(); SaveCode.bind();
+    new ResizeObserver(() => this.onResize()).observe(this.cv);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { if (this.scene instanceof GameScene && !this.scene.results) this.scene.autosave(); Store.flush(); if (Snd.ac) Snd.ac.suspend().catch(() => {}); }
+      else { if (Snd.ac) Snd.ac.resume().catch(() => {}); Store.pull(); }
+    });
+    window.addEventListener('pagehide', () => Store.flush());
+    Store.connect(changed => {
+      if (changed) {
+        this.profile = new Profile(); Snd.setOn(this.profile.sound);
+        if (app.achChecked) Ach.commit(false);
+        if (this.profile.theme !== TH.id) this.setTheme(this.profile.theme);
+        if (this.scene.refresh) this.scene.refresh();
+      }
+    });
+    let last = performance.now();
+    const loop = now => { const dt = Math.min(.05, (now - last) / 1000); last = now; this.frame(dt); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  },
+  measure() {
+    const r = this.cv.getBoundingClientRect(), vw = Math.max(1, r.width), vh = Math.max(1, r.height);
+    this.vw = vw; this.vh = vh; this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.cv.width = Math.round(vw * this.dpr); this.cv.height = Math.round(vh * this.dpr);
+    this.portrait = vw / vh < 1.05;
+    W = this.portrait ? 720 : 1280; H = this.portrait ? 1280 : 720;
+    this.scale = Math.min(vw / W, vh / H);
+    this.DW = vw / this.scale; this.DH = vh / this.scale; this.ox = (this.DW - W) / 2; this.oy = (this.DH - H) / 2;
+    this.q = Math.min(3, this.scale * this.dpr);
+    this.bgs = {};
+  },
+  onResize() {
+    const r = this.cv.getBoundingClientRect();
+    if (Math.abs(r.width - this.vw) < 1 && Math.abs(r.height - this.vh) < 1) return;
+    const was = this.portrait; this.measure();
+    if (this.scene) { this.scene.layout(); if (was !== this.portrait && this.scene.back && this.scene.back.layout) this.scene.back.layout(); }
+  },
+  getBg(kind) {
+    if (this.bgs[kind]) return this.bgs[kind];
+    let cv;
+    const pic = themeImg(`${kind}_${this.portrait ? 'port' : 'land'}`) || themeImg(`${kind}_${this.portrait ? 'land' : 'port'}`);
+    if (pic) {
+      // cover the whole stage with the theme's painted background
+      const [c2, g2] = mk(this.DW, this.DH, Math.min(2, this.q)), k = Math.max(this.DW / pic.width, this.DH / pic.height);
+      g2.drawImage(pic, (this.DW - pic.width * k) / 2, (this.DH - pic.height * k) / 2, pic.width * k, pic.height * k);
+      if (kind === 'game' && !(TH.vfx && TH.vfx.dark)) { g2.fillStyle = 'rgba(255,255,255,0.12)'; g2.fillRect(0, 0, this.DW, this.DH); }
+      cv = c2;
+    } else if (TH.id !== 'garden') {
+      const [c2, g2] = mk(this.DW, this.DH, 1); skyBase(g2, this.DW, this.DH, C.sky[0], C.sky[1]); cv = c2;
+    } else if (kind === 'menu') cv = makeMenuBg(this.DW, this.DH, W, H, this.ox, this.oy, this.q);
+    else {
+      const L = this.portrait ? { bx: 30, by: 300, s: 660 } : { bx: 367, by: 140, s: 562 };
+      cv = makeGameBg(this.DW, this.DH, H, this.oy, [L.bx + this.ox, L.by + this.oy, L.s, L.s], this.q);
+    }
+    return (this.bgs[kind] = cv);
+  },
+  // Bloom for premium themes: keep only the bright parts (where canvas filters exist), shrink them twice so they blur,
+  // then screen them back over the frame. Turns itself off if the device can't keep up.
+  bloom(g, dt) {
+    const V = TH.vfx; if (!V || !V.bloom || this.noBloom) return;
+    this.slow = dt > 1 / 32 ? (this.slow || 0) + dt : Math.max(0, (this.slow || 0) - dt);
+    if (this.slow > 3) { this.noBloom = true; return; }
+    const cv = this.cv, w = Math.max(32, cv.width >> 3), h = Math.max(32, cv.height >> 3);
+    if (!this.bl || this.bl.width !== w || this.bl.height !== h) {
+      this.bl = document.createElement('canvas'); this.bl.width = w; this.bl.height = h; this.blg = this.bl.getContext('2d');
+      this.bl2 = document.createElement('canvas'); this.bl2.width = w >> 1; this.bl2.height = h >> 1; this.blg2 = this.bl2.getContext('2d');
+      this.bloomFilter = 'filter' in this.blg;
+    }
+    const b = this.blg, b2 = this.blg2;
+    b.globalCompositeOperation = 'copy';
+    if (this.bloomFilter) b.filter = 'brightness(0.85) contrast(2.4) saturate(1.5)';
+    b.drawImage(cv, 0, 0, w, h);
+    if (this.bloomFilter) b.filter = 'none';
+    b2.globalCompositeOperation = 'copy'; b2.drawImage(this.bl, 0, 0, w >> 1, h >> 1);
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'screen'; g.imageSmoothingEnabled = true;
+    const k = V.bloom * (this.bloomFilter ? 1 : .45);
+    g.globalAlpha = k; g.drawImage(this.bl2, 0, 0, cv.width, cv.height);
+    g.globalAlpha = k * .6; g.drawImage(this.bl, 0, 0, cv.width, cv.height);
+    g.restore();
+  },
+  switch(s) { this.scene = s; s.layout(); this.cv.focus({ preventScroll: true }); },
+  toStage(e) { const r = this.cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / this.scale - this.ox, y: (e.clientY - r.top) / this.scale - this.oy }; },
+  bindInput() {
+    const cv = this.cv;
+    cv.addEventListener('pointerdown', e => {
+      Snd.unlock(); this.lastPointer = e.pointerType;
+      try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+      const p = this.toStage(e);
+      this.mouse = { ...p, has: e.pointerType === 'mouse' };
+      if (e.button === 2) { this.scene.handle({ type: 'rclick', ...p }); return; }
+      if (e.button === 0) this.scene.handle({ type: 'down', ...p });
+    });
+    cv.addEventListener('pointermove', e => {
+      const p = this.toStage(e);
+      this.mouse = { ...p, has: e.pointerType === 'mouse' };
+      this.scene.handle({ type: 'move', ...p });
+    });
+    const up = e => {
+      if (e.button !== 0 && e.type === 'pointerup') return;
+      const p = this.toStage(e);
+      if (e.pointerType !== 'mouse') this.mouse.has = false;
+      this.scene.handle({ type: 'up', ...p });
+    };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', up);
+    cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') this.mouse.has = false; });
+    cv.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('gesturestart', e => e.preventDefault());
+    window.addEventListener('keydown', e => {
+      if (SaveCode.open) return;  // typing in the save-code box
+      Snd.unlock();
+      if (e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
+      if (TEST && e.key.toLowerCase() === 't') { cycleTheme(); return; }
+      this.scene.handle({ type: 'key', key: e.key.length === 1 ? e.key.toLowerCase() : e.key });
+    });
+  },
+  frame(dt) {
+    const g = this.g, s = this.scale * this.dpr;
+    this.scene.update(dt);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const kind = this.scene.bg(), bg = this.getBg(kind);
+    g.setTransform(s, 0, 0, s, 0, 0);
+    g.drawImage(bg, 0, 0, this.DW, this.DH);
+    g.setTransform(s, 0, 0, s, this.ox * s, this.oy * s);
+    this.scene.draw(g, dt);
+    this.bloom(g, dt);
+    Ach.update(dt); Ach.draw(g);
+    if (TEST) T(g, `TEST MODE  ·  ${TH.name}  ·  T = next theme`, W / 2, H - 12, { size: 16, outline: [40, 30, 30], ow: 3 });
+  },
+};
+
+async function boot() {
+  try {
+    await Promise.race([
+      Promise.all(['600 20px Fredoka', '700 20px Fredoka', '500 20px Fredoka', '20px Pacifico'].map(f => document.fonts.load(f))),
+      new Promise(r => setTimeout(r, 2500)),
+    ]);
+  } catch (e) { /* fall back to system fonts */ }
+  app.init();
+  document.getElementById('loading').hidden = true;
+}
+boot();
+</script>
+
+</body></html>
